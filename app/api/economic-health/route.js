@@ -1,53 +1,33 @@
-// File: app/api/economic-health/route.js
-
+// File: /api/economic-health/route.js -- DATABASE VERSION
+import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
 
-async function getEconomicHealthData() {
-  // Mock values
-  const latestGDP = 1.9; // GDP Growth %
-  const latestUnemployment = 2.3; // Unemployment Rate %
-
-  const gdpHistory = [
-    { date: 'Q3 2024', value: 1.5 }, { date: 'Q4 2024', value: 1.7 },
-    { date: 'Q1 2025', value: 1.6 }, { date: 'Q2 2025', value: 1.9 },
-  ];
-
-  return {
-    gdp: { value: latestGDP, historicalData: gdpHistory },
-    unemployment: { value: latestUnemployment },
-    source: "State Secretariat for Economic Affairs (SECO)",
-    nextPublication: "Late August 2025",
-  };
-}
-
-export async function GET(request) {
+export async function GET() {
   try {
-    const data = await getEconomicHealthData();
-    let gdpScore = 0;
-    let unemploymentScore = 0;
+    const { rows } = await sql`SELECT gdp_value, unemployment_value FROM latest_indicators WHERE id = 1;`;
+    const { gdp_value, unemployment_value } = rows[0];
 
-    // --- NEW SCORING LOGIC FOR GDP ---
-    const gdp = data.gdp.value;
-    if (gdp > 2.5) gdpScore = 2;
-    else if (gdp > 1.5) gdpScore = 1;
-    else if (gdp >= 0.5) gdpScore = 0;
-    else if (gdp >= 0.0) gdpScore = -1;
+    let gdpScore = 0;
+    if (gdp_value > 2.5) gdpScore = 2;
+    else if (gdp_value > 1.5) gdpScore = 1;
+    else if (gdp_value >= 0.5) gdpScore = 0;
+    else if (gdp_value >= 0.0) gdpScore = -1;
     else gdpScore = -2;
 
-    // --- NEW SCORING LOGIC FOR UNEMPLOYMENT ---
-    const unemployment = data.unemployment.value;
-    if (unemployment < 2.0) unemploymentScore = 2;
-    else if (unemployment < 2.5) unemploymentScore = 1;
-    else if (unemployment <= 3.5) unemploymentScore = 0;
-    else if (unemployment <= 4.5) unemploymentScore = -1;
+    let unemploymentScore = 0;
+    if (unemployment_value < 2.0) unemploymentScore = 2;
+    else if (unemployment_value < 2.5) unemploymentScore = 1;
+    else if (unemployment_value <= 3.5) unemploymentScore = 0;
+    else if (unemployment_value <= 4.5) unemploymentScore = -1;
     else unemploymentScore = -2;
-    
-    // Add the scores to their respective data objects
-    data.gdp.score = gdpScore;
-    data.unemployment.score = unemploymentScore;
-        
-    return NextResponse.json(data);
+
+    const responseData = {
+      gdp: { value: gdp_value, score: gdpScore },
+      unemployment: { value: unemployment_value, score: unemploymentScore },
+      source: "SECO (DB)", nextPublication: "Quarterly"
+    };
+    return NextResponse.json(responseData);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch economic health data' }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

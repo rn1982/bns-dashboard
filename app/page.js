@@ -31,7 +31,7 @@ export default function HomePage() {
           fetch('/api/inflation'), fetch('/api/exchange-rate'),
           fetch('/api/economic-health'), fetch('/api/international-rates')
         ]);
-        
+
         setAllData({
           inflation: await inflationRes.json(),
           exchangeRate: await exchangeRateRes.json(),
@@ -51,6 +51,9 @@ export default function HomePage() {
     if (isLoading || Object.values(allData).some(d => d === null)) {
       return null;
     }
+
+    // --- DEBUGGING LINE ---
+    // This will print the exact data object to the browser's console
 
     try {
       const globalScore = 
@@ -73,17 +76,17 @@ export default function HomePage() {
       } else {
         verdict = { text: 'Strong CUT signal', bgColor: 'bg-green-200', textColor: 'text-green-900', borderColor: 'border-green-400' };
       }
-      
+
       return { ...verdict, score: globalScore.toFixed(2) };
 
     } catch (e) {
-      // This will catch errors if any data object is missing a score
       return { text: 'Error in calculation', bgColor: 'bg-yellow-100', textColor: 'text-yellow-800', borderColor: 'border-yellow-300', score: 'N/A' };
     }
   };
 
   const finalVerdict = calculateFinalVerdict();
 
+  // The rest of your JSX code remains the same...
   return (
     <main className="bg-gray-50 min-h-screen p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
@@ -114,10 +117,11 @@ export default function HomePage() {
           <IndicatorCard title="3. Economic Health" data={allData.economicHealth} />
           <IndicatorCard title="4. International Rates" data={allData.internationalRates} />
         </div>
-        
+
         <footer className="text-center mt-12 text-sm text-gray-500">
           <p>For informational purposes only. Not investment advice.</p>
         </footer>
+
       </div>
     </main>
   );
