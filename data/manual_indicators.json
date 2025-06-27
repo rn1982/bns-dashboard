@@ -1,0 +1,20 @@
+{
+  "snb_next_meeting": {
+    "date": "25 September 2025"
+  },
+  "snb_policy_rate": {
+    "value": 1.25
+  },
+  "gdp_forecast": {
+    "value": 1.5
+  },
+  "unemployment_rate": {
+    "value": 2.1
+  },
+  "ecb_stance": {
+    "stance": "cut_last_3_months"
+  },
+  "fed_stance": {
+    "stance": "hold_hawkish_bias"
+  }
+}
