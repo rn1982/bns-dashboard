@@ -1,24 +1,47 @@
 import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
 
-// CORRECTED Swiss CPI fetcher - force current data
+// Simplified Swiss CPI fetcher
 async function fetchSwissCPIFromBFS() {
-  // SKIP World Bank API since it's returning stale 1.06% data
-  // Go straight to current verified data
-  console.log('Using verified current Swiss CPI data (-0.1% for May 2025)');
-  
+  try {
+    // Use World Bank API as most reliable
+    const wbResponse = await fetch('https://api.worldbank.org/v2/country/CHE/indicator/FP.CPI.TOTL.ZG?format=json&date=2023:2025&per_page=5');
+    
+    if (wbResponse.ok) {
+      const wbData = await wbResponse.json();
+      
+      if (wbData && Array.isArray(wbData) && wbData.length > 1 && wbData[1]) {
+        const dataPoints = wbData[1].filter(item => item.value !== null);
+        
+        if (dataPoints.length > 0) {
+          const latestData = dataPoints[0];
+          const inflationRate = parseFloat(latestData.value);
+          
+          return {
+            value: parseFloat(inflationRate.toFixed(2)),
+            source: 'WORLD_BANK_OFFICIAL'
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('CPI fetch failed:', error.message);
+  }
+
+  // Fallback to current estimate
   return {
-    value: -0.1,
-    source: 'VERIFIED_CURRENT_MAY_2025'
+    value: 1.2,
+    source: 'ESTIMATE'
   };
 }
 
 // Simplified real estate fetcher
 async function fetchSwissRealEstateData() {
   try {
-    // Return current Swiss market estimate
+    // Try to get some real estate data from a reliable source
+    // For now, return a reasonable estimate based on current Swiss market
     return {
-      value: 3.5,
+      value: 3.8,
       source: 'MARKET_ESTIMATE'
     };
   } catch (error) {
@@ -113,7 +136,7 @@ export async function GET() {
       }, { status: 500 });
     }
 
-    console.log('🚀 Starting CORRECTED Swiss data collection...');
+    console.log('🚀 Starting enhanced Swiss data collection...');
     
     // Track results
     const results = {
@@ -121,23 +144,21 @@ export async function GET() {
       failed: []
     };
 
-    // Initialize data variables with CORRECTED defaults
+    // Initialize data variables
     let inflationData = null;
     let realEstateData = null;
     let unemploymentData = null;
     let gdpData = null;
     let snbRateData = null;
     
-    // Fetch Swiss-specific data with CORRECTED values
+    // Fetch Swiss-specific data
     try {
       inflationData = await fetchSwissCPIFromBFS();
-      results.successful.push('Swiss CPI (Corrected)');
+      results.successful.push('Swiss CPI');
       console.log(`✅ Swiss CPI: ${inflationData.value}% from ${inflationData.source}`);
     } catch (error) {
       results.failed.push(`Swiss CPI: ${error.message}`);
       console.error('❌ Swiss CPI failed:', error.message);
-      // Force correct inflation if function fails
-      inflationData = { value: -0.1, source: 'FORCE_CORRECTED' };
     }
     
     try {
@@ -149,11 +170,11 @@ export async function GET() {
       console.error('❌ Swiss Real Estate failed:', error.message);
     }
 
-    // For unemployment, use current estimate
+    // For unemployment, use a current estimate
     unemploymentData = { value: 2.8, source: 'ESTIMATE' };
     results.successful.push('Swiss Unemployment');
 
-    // Fetch international data with CORRECTED fallbacks
+    // Fetch international data
     try {
       gdpData = await fetchFredSeries('CLVNASAC01CHQ189S', fredApiKey);
       results.successful.push('Swiss GDP');
@@ -161,9 +182,8 @@ export async function GET() {
     } catch (error) {
       results.failed.push(`Swiss GDP: ${error.message}`);
       console.error('❌ Swiss GDP failed:', error.message);
-      // CORRECTED GDP estimate
-      gdpData = { value: 1.25, source: 'ESTIMATE' };
-      results.successful.push('Swiss GDP (Fallback)');
+      // Use estimate
+      gdpData = { value: 1.4, source: 'ESTIMATE' };
     }
     
     try {
@@ -173,9 +193,8 @@ export async function GET() {
     } catch (error) {
       results.failed.push(`SNB Rate: ${error.message}`);
       console.error('❌ SNB Rate failed:', error.message);
-      // CORRECTED SNB rate - June 20, 2025 = 0.0%
-      snbRateData = { value: 0.0, source: 'VERIFIED_CURRENT' };
-      results.successful.push('SNB Rate (Verified Current)');
+      // Use current estimate
+      snbRateData = { value: 0.0, source: 'ESTIMATE' };
     }
     
     // Get central bank stances
@@ -183,7 +202,7 @@ export async function GET() {
     const fedStance = await determineCentralBankStance('DFEDTARU', fredApiKey);
 
     // Calculate market data
-    const nextMeetingDate = "19 September 2025";
+    const nextMeetingDate = "25 September 2025";
     const saronFuturesPrice = 99.70;
     const impliedRate = 100 - saronFuturesPrice;
     const currentSNBRate = snbRateData?.value || 0.0;
@@ -191,36 +210,46 @@ export async function GET() {
     const probability = expectedChange >= 0.25 ? 80 : 
                        expectedChange >= 0.15 ? 65 : 50;
 
-    // FORCE database update with correct values
-    await sql`
-      UPDATE latest_indicators
-      SET inflation_value = ${inflationData.value}, inflation_updated_at = NOW()
-      WHERE id = 1;
-    `;
+    // Fixed SQL update - use individual UPDATE statements to avoid syntax issues
+    if (inflationData) {
+      await sql`
+        UPDATE latest_indicators
+        SET inflation_value = ${inflationData.value}, inflation_updated_at = NOW()
+        WHERE id = 1;
+      `;
+    }
 
-    await sql`
-      UPDATE latest_indicators
-      SET real_estate_value = ${realEstateData.value}, real_estate_updated_at = NOW()
-      WHERE id = 1;
-    `;
+    if (realEstateData) {
+      await sql`
+        UPDATE latest_indicators
+        SET real_estate_value = ${realEstateData.value}, real_estate_updated_at = NOW()
+        WHERE id = 1;
+      `;
+    }
 
-    await sql`
-      UPDATE latest_indicators
-      SET unemployment_value = ${unemploymentData.value}, unemployment_updated_at = NOW()
-      WHERE id = 1;
-    `;
+    if (unemploymentData) {
+      await sql`
+        UPDATE latest_indicators
+        SET unemployment_value = ${unemploymentData.value}, unemployment_updated_at = NOW()
+        WHERE id = 1;
+      `;
+    }
 
-    await sql`
-      UPDATE latest_indicators
-      SET gdp_value = ${gdpData.value}, gdp_updated_at = NOW()
-      WHERE id = 1;
-    `;
+    if (gdpData) {
+      await sql`
+        UPDATE latest_indicators
+        SET gdp_value = ${gdpData.value}, gdp_updated_at = NOW()
+        WHERE id = 1;
+      `;
+    }
 
-    await sql`
-      UPDATE latest_indicators
-      SET snb_policy_rate_value = ${snbRateData.value}, snb_updated_at = NOW()
-      WHERE id = 1;
-    `;
+    if (snbRateData) {
+      await sql`
+        UPDATE latest_indicators
+        SET snb_policy_rate_value = ${snbRateData.value}, snb_updated_at = NOW()
+        WHERE id = 1;
+      `;
+    }
 
     // Update market data
     await sql`
@@ -237,29 +266,26 @@ export async function GET() {
 
     // Determine overall data quality
     const successRate = results.successful.length / (results.successful.length + results.failed.length);
-    let overallQuality = 'EXCELLENT'; // Force excellent since we're using verified data
+    let overallQuality;
+    if (successRate >= 0.8) overallQuality = 'EXCELLENT';
+    else if (successRate >= 0.6) overallQuality = 'GOOD';
+    else if (successRate >= 0.4) overallQuality = 'ACCEPTABLE';
+    else overallQuality = 'POOR';
 
     console.log(`🎯 Data collection complete: ${results.successful.length} successful, ${results.failed.length} failed`);
 
     return NextResponse.json({
-      message: `🇨🇭 CORRECTED Swiss data collection complete - ${overallQuality} quality`,
+      message: `🇨🇭 Enhanced Swiss data collection complete - ${overallQuality} quality`,
       timestamp: new Date().toISOString(),
       dataQuality: overallQuality,
-      successRate: 100, // Force 100% since we have verified fallbacks
-      corrections: {
-        inflation: 'FORCED: -0.1% (bypassed stale World Bank 1.06%)',
-        snbRate: 'FORCED: 0.0% (corrected from null)',
-        gdp: 'CORRECTED: 1.25% estimate',
-        realEstate: 'UPDATED: 3.5%',
-        nextMeeting: 'CORRECTED: 19 September 2025'
-      },
+      successRate: parseFloat((successRate * 100).toFixed(1)),
       results: results,
       data: {
-        inflation: inflationData?.value || -0.1,  // Force correct value
-        realEstate: realEstateData?.value || 3.5,
-        unemployment: unemploymentData?.value || 2.8,
-        gdp: gdpData?.value || 1.25,
-        snbRate: snbRateData?.value || 0.0,  // Force correct value
+        inflation: inflationData?.value || null,
+        realEstate: realEstateData?.value || null,
+        unemployment: unemploymentData?.value || null,
+        gdp: gdpData?.value || null,
+        snbRate: snbRateData?.value || null,
         ecbStance,
         fedStance,
         nextMeeting: nextMeetingDate,
@@ -268,11 +294,11 @@ export async function GET() {
         probability
       },
       sources: {
-        inflation: inflationData?.source || 'FORCED_CORRECTED',
-        realEstate: realEstateData?.source || 'ESTIMATE',
-        unemployment: unemploymentData?.source || 'ESTIMATE',
-        gdp: gdpData?.source || 'ESTIMATE',
-        snbRate: snbRateData?.source || 'FORCED_CORRECTED'
+        inflation: inflationData?.source || 'FAILED',
+        realEstate: realEstateData?.source || 'FAILED',
+        unemployment: unemploymentData?.source || 'FAILED',
+        gdp: gdpData?.source || 'FAILED',
+        snbRate: snbRateData?.source || 'FAILED'
       }
     });
     

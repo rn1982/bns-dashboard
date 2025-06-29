@@ -1,64 +1,56 @@
 export default function IndicatorCard({ title, data }) {
-  console.log(`IndicatorCard: ${title}`, data);
-
-  if (!data) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-gray-300">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-gray-600">Loading...</p>
-      </div>
-    );
-  }
-
-  if (data.error) {
+  if (!data || data.error) {
     return (
       <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-red-600">Error: {data.error}</p>
+        <p className="text-red-600">Error loading data</p>
       </div>
     );
   }
 
-  // Format display value and score based on card type
   let displayValue = "No data";
   let displayScore = 0;
   let source = data.source || "Unknown";
 
-  try {
-    if (title.includes("Inflation")) {
-      displayValue = `${data.value}%`;
-      displayScore = data.score || 0;
-    } 
-    else if (title.includes("Exchange Rate")) {
-      displayValue = data.value?.toFixed(4) || "N/A";
-      displayScore = data.score || 0;
-    }
-    else if (title.includes("Economic Health")) {
-      if (data.gdp && data.unemployment) {
-        displayValue = `GDP: ${data.gdp.value}%, Unemployment: ${data.unemployment.value}%`;
-        displayScore = (data.gdp.score || 0) + (data.unemployment.score || 0);
-        source = data.gdp.source || "Multiple sources";
-      }
-    }
-    else if (title.includes("International Rates")) {
-      if (data.ecb && data.fed) {
-        displayValue = `ECB: ${data.ecb.rate}%, Fed: ${data.fed.rate}%`;
-        displayScore = (data.ecb.score || 0) + (data.fed.score || 0);
-        source = data.ecb.source || "Multiple sources";
-      }
-    }
-  } catch (error) {
-    console.error(`Error processing ${title}:`, error);
-    displayValue = "Error processing data";
+  // Handle different indicator types
+  if (title.includes("Real Estate")) {
+    displayValue = `${data.value}% YoY`;
+    displayScore = data.score || 0;
+  } else if (title.includes("Inflation")) {
+    displayValue = `${data.value}%`;
+    displayScore = data.score || 0;
+  } else if (title.includes("EUR/CHF")) {
+    displayValue = data.value?.toFixed(4) || "N/A";
+    displayScore = data.score || 0;
+  } else if (title.includes("ECB")) {
+    displayValue = `${data.rate}%`;
+    displayScore = data.score || 0;
+    source = data.source || "FRED (Live)";
+  } else if (title.includes("Fed")) {
+    displayValue = `${data.rate}%`;
+    displayScore = data.score || 0;
+    source = data.source || "FRED (Live)";
+  } else if (title.includes("GDP")) {
+    displayValue = `${data.value}%`;
+    displayScore = data.score || 0;
+  } else if (title.includes("Unemployment")) {
+    displayValue = `${data.value}%`;
+    displayScore = data.score || 0;
   }
 
   // Color coding based on score
   let scoreColor = "text-gray-600";
-  if (displayScore > 0) scoreColor = "text-red-600";
-  else if (displayScore < 0) scoreColor = "text-green-600";
+  let borderColor = "border-gray-400";
+  if (displayScore > 0) {
+    scoreColor = "text-red-600";
+    borderColor = "border-red-400";
+  } else if (displayScore < 0) {
+    scoreColor = "text-green-600";
+    borderColor = "border-green-400";
+  }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500 hover:shadow-lg transition-shadow">
+    <div className={`bg-white rounded-lg shadow p-6 border-l-4 ${borderColor} hover:shadow-lg transition-shadow`}>
       <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
       
       <div className="mb-3">
@@ -69,7 +61,7 @@ export default function IndicatorCard({ title, data }) {
         <span className={`font-semibold ${scoreColor}`}>
           Score: {displayScore}
         </span>
-        <span className="text-gray-500">
+        <span className="text-gray-500 text-xs">
           {source}
         </span>
       </div>
