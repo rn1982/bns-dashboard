@@ -19,6 +19,7 @@ export default function HomePage() {
   const [allData, setAllData] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showManualInput, setShowManualInput] = useState(false); // NOUVEAU STATE pour contrôler la modal
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -61,6 +62,46 @@ export default function HomePage() {
 
     fetchAllData();
   }, []);
+
+  // Fonction pour recharger toutes les données
+  const refreshAllData = async () => {
+    console.log('🔄 Data updated, refreshing dashboard...');
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const [
+        inflationRes, 
+        realEstateRes,
+        exchangeRateRes, 
+        economicHealthRes, 
+        internationalRatesRes,
+        marketExpectationsRes
+      ] = await Promise.all([
+        fetch('/api/inflation').then(res => res.json()),
+        fetch('/api/real-estate').then(res => res.json()),
+        fetch('/api/exchange-rate').then(res => res.json()),
+        fetch('/api/economic-health').then(res => res.json()),
+        fetch('/api/international-rates').then(res => res.json()),
+        fetch('/api/market-expectations').then(res => res.json())
+      ]);
+      
+      setAllData({
+        inflation: inflationRes,
+        realEstate: realEstateRes,
+        exchangeRate: exchangeRateRes,
+        economicHealth: economicHealthRes,
+        internationalRates: internationalRatesRes,
+        marketExpectations: marketExpectationsRes,
+      });
+      
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const calculateFinalVerdict = () => {
     if (isLoading || Object.values(allData).some(d => !d || d.error)) {
@@ -178,8 +219,38 @@ export default function HomePage() {
           </p>
         </header>
 
-        {/* Manual Data Input Component */}
-        <ManualDataInput />
+        {/* Manual Data Input - Button or Modal */}
+        {!showManualInput ? (
+          // Bouton pour ouvrir la modal
+          <div className="mb-6">
+            <button 
+              onClick={() => setShowManualInput(true)}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2 shadow-md"
+            >
+              <span>📝</span>
+              <span>Manual Data Update</span>
+            </button>
+          </div>
+        ) : (
+          // Modal de mise à jour manuelle
+          <div className="mb-6">
+            <ManualDataInput 
+              onUpdate={() => {
+                refreshAllData();
+                setShowManualInput(false); // Fermer la modal après mise à jour
+              }}
+            />
+            {/* Bouton pour fermer la modal */}
+            <div className="mt-4">
+              <button 
+                onClick={() => setShowManualInput(false)}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors duration-200"
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Model Forecast */}
         <div className="mb-6">

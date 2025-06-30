@@ -1,204 +1,195 @@
-'use client';
-
+// app/components/ManualDataInput.js
 import { useState } from 'react';
 
-export default function ManualDataInput() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+export default function ManualDataInput({ onUpdate }) {
   const [formData, setFormData] = useState({
     inflation: '',
     snbRate: '',
-    gdp: '',
+    saronFutures: '',
+    realEstate: '',
     unemployment: '',
-    realEstate: ''
+    gdp: '',
+    exchangeRate: ''
   });
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSubmitting(true);
+    setMessage('');
 
     try {
-      // Filter out empty values
-      const dataToUpdate = {};
+      const updateData = {};
       Object.keys(formData).forEach(key => {
         if (formData[key] !== '') {
-          dataToUpdate[key] = parseFloat(formData[key]);
+          updateData[key] = parseFloat(formData[key]);
         }
       });
 
-      if (Object.keys(dataToUpdate).length === 0) {
-        alert('Please enter at least one value to update');
-        setIsLoading(false);
-        return;
+      if (Object.keys(updateData).length === 0) {
+        throw new Error('Veuillez remplir au moins un champ');
       }
-
-      console.log('Sending update:', dataToUpdate);
 
       const response = await fetch('/api/cron/manual-data-update', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify(dataToUpdate)
+        body: JSON.stringify(updateData),
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Response error:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
       const result = await response.json();
-      console.log('Response result:', result);
-
+      
       if (result.success) {
-        setLastUpdate(new Date().toLocaleString());
+        setMessage('✅ Données mises à jour avec succès');
         setFormData({
           inflation: '',
           snbRate: '',
-          gdp: '',
+          saronFutures: '',
+          realEstate: '',
           unemployment: '',
-          realEstate: ''
+          gdp: '',
+          exchangeRate: ''
         });
-        alert('✅ Data updated successfully! Refresh the page to see changes.');
+        if (onUpdate) onUpdate();
       } else {
-        alert(`❌ Update failed: ${result.error}`);
+        throw new Error(result.error || 'Erreur lors de la mise à jour');
       }
     } catch (error) {
-      console.error('Update error:', error);
-      alert(`❌ Update failed: ${error.message}`);
+      setMessage(`❌ Erreur: ${error.message}`);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (!isOpen) {
-    return (
-      <div className="mb-4">
-        <button
-          onClick={() => setIsOpen(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          📝 Manual Data Update
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-blue-900">Manual Data Update</h3>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="text-blue-600 hover:text-blue-800"
-        >
-          ✕ Close
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-blue-900 mb-1">
-              Swiss Inflation (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.inflation}
-              onChange={(e) => setFormData({...formData, inflation: e.target.value})}
-              placeholder="e.g., -0.1"
-              className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-blue-600 mt-1">Current: -0.1% (May 2025)</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-blue-900 mb-1">
-              SNB Policy Rate (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.snbRate}
-              onChange={(e) => setFormData({...formData, snbRate: e.target.value})}
-              placeholder="e.g., 0.0"
-              className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-blue-600 mt-1">Current: 0.0% (June 2025)</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-blue-900 mb-1">
-              Swiss GDP Growth (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.gdp}
-              onChange={(e) => setFormData({...formData, gdp: e.target.value})}
-              placeholder="e.g., 1.25"
-              className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-blue-600 mt-1">Current: 1.25%</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-blue-900 mb-1">
-              Unemployment Rate (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.unemployment}
-              onChange={(e) => setFormData({...formData, unemployment: e.target.value})}
-              placeholder="e.g., 2.8"
-              className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-blue-600 mt-1">Current: 2.8%</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-blue-900 mb-1">
-              Real Estate Growth (%)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.realEstate}
-              onChange={(e) => setFormData({...formData, realEstate: e.target.value})}
-              placeholder="e.g., 3.5"
-              className="w-full px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-blue-600 mt-1">Current: 3.5%</p>
-          </div>
+    <div className="bg-white p-6 rounded-lg shadow mb-6">
+      <h3 className="text-lg font-semibold mb-4">📝 Mise à jour manuelle des données</h3>
+      
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Swiss Inflation (%)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.inflation}
+            onChange={(e) => setFormData(prev => ({...prev, inflation: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., -0.1"
+          />
         </div>
 
-        <div className="flex items-center justify-between">
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            SNB Policy Rate (%)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.snbRate}
+            onChange={(e) => setFormData(prev => ({...prev, snbRate: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 0.0"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Swiss GDP Growth (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            value={formData.gdp}
+            onChange={(e) => setFormData(prev => ({...prev, gdp: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 1.25"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Unemployment Rate (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            value={formData.unemployment}
+            onChange={(e) => setFormData(prev => ({...prev, unemployment: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 2.8"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Real Estate Growth (%)
+          </label>
+          <input
+            type="number"
+            step="0.1"
+            value={formData.realEstate}
+            onChange={(e) => setFormData(prev => ({...prev, realEstate: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 3.5"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            EUR/CHF Exchange Rate
+          </label>
+          <input
+            type="number"
+            step="0.0001"
+            value={formData.exchangeRate}
+            onChange={(e) => setFormData(prev => ({...prev, exchangeRate: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 0.9850"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium mb-1">
+            🎯 SARON Futures 3M (Eurex FSR3 Price)
+          </label>
+          <input
+            type="number"
+            step="0.001"
+            value={formData.saronFutures}
+            onChange={(e) => setFormData(prev => ({...prev, saronFutures: e.target.value}))}
+            className="w-full p-2 border rounded"
+            placeholder="e.g., 99.750"
+          />
+          <small className="text-gray-500 mt-1 block">
+            📊 Eurex FSR3 futures price. Example: 99.750 = 0.250% implied rate
+            <br />
+            🔗 Source: <a href="https://www.eurex.com" target="_blank" className="text-blue-600 hover:underline">Eurex.com</a> → Search FSR3
+          </small>
+        </div>
+
+        <div className="md:col-span-2">
           <button
             type="submit"
-            disabled={isLoading}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-green-500"
+            disabled={isSubmitting}
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {isLoading ? 'Updating...' : 'Update Data'}
+            {isSubmitting ? 'Updating...' : 'Update Data'}
           </button>
-          
-          {lastUpdate && (
-            <span className="text-sm text-green-600">
-              Last manual update: {lastUpdate}
-            </span>
-          )}
+          <p className="mt-2 text-sm text-gray-600">
+            💡 Leave fields empty to keep current values. Only enter values you want to change.
+          </p>
         </div>
-
-        <p className="text-xs text-blue-600">
-          💡 Leave fields empty to keep current values. Only enter values you want to change.
-        </p>
       </form>
+
+      {message && (
+        <div className="mt-4 p-3 rounded bg-gray-100">
+          {message}
+        </div>
+      )}
     </div>
   );
 }
