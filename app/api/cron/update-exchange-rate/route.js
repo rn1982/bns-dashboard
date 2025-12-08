@@ -12,7 +12,12 @@ export async function GET() {
   try {
     const response = await fetch(url);
     const data = await response.json();
-    
+
+    // Check if Alpha Vantage returned an error or limit message
+    if (data['Error Message'] || data['Note']) {
+      throw new Error(data['Error Message'] || data['Note']);
+    }
+
     const rate = data['Realtime Currency Exchange Rate']['5. Exchange Rate'];
     const value = 1 / parseFloat(rate); // Convert from CHF per EUR to EUR per CHF
 
@@ -21,14 +26,14 @@ export async function GET() {
       SET exchange_rate_value = ${value}, exchange_rate_updated_at = NOW() 
       WHERE id = 1;
     `;
-    
-    return NextResponse.json({ 
-      message: 'Exchange rate updated from Alpha Vantage.', 
+
+    return NextResponse.json({
+      message: 'Exchange rate updated from Alpha Vantage.',
       value: value.toFixed(4)
     });
   } catch (error) {
-    return NextResponse.json({ 
-      error: `Alpha Vantage Error: ${error.message}` 
+    return NextResponse.json({
+      error: `Alpha Vantage Error: ${error.message}`
     }, { status: 500 });
   }
 }
