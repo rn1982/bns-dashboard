@@ -1,15 +1,14 @@
-import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
+import { readRow, readIndicator } from '../../lib/db';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Get live exchange rate data from database (populated by cron job)
-    const { rows } = await sql`SELECT exchange_rate_value, exchange_rate_updated_at FROM latest_indicators WHERE id = 1;`;
-    if (rows.length === 0) throw new Error("No exchange rate data found in database.");
-    
-    const rate = rows[0].exchange_rate_value;
-    const updatedAt = rows[0].exchange_rate_updated_at;
-    
+    const row = await readRow();
+    const { value: rate, meta } = readIndicator(row, 'exchange_rate');
+    if (rate === null) return NextResponse.json({ error: 'No EUR/CHF value stored yet', meta });
+
     // OPTIMIZED SNB LOGIC - Based on 2000-2025 Backtesting
     // Asymmetric response: SNB more aggressive against CHF strength than weakness
     // CHF fort (low EUR/CHF) = CUT pressure (competitiveness concerns)
@@ -49,11 +48,10 @@ export async function GET() {
     }
     
     const responseData = { 
-      value: rate ? parseFloat(rate.toFixed(4)) : null,
+      value: parseFloat(rate.toFixed(4)),
       score: score, 
-      source: "Alpha Vantage (Live)", 
-      nextPublication: "Real-time",
-      updatedAt: updatedAt,
+      meta,
+      nextPublication: "Daily (ECB reference rate, ~16:00 CET)",
       description: "EUR/CHF exchange rate - Asymmetric SNB response to CHF strength",
       interpretation: interpretation,
       interventionRisk: interventionRisk,

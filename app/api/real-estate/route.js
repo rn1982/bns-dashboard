@@ -1,18 +1,14 @@
-import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
+import { readRow, readIndicator } from '../../lib/db';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Get real estate data from database
-    const { rows } = await sql`
-      SELECT real_estate_value, real_estate_updated_at 
-      FROM latest_indicators WHERE id = 1;
-    `;
-    if (rows.length === 0) throw new Error("No real estate data found in database.");
-    
-    const realEstateGrowth = rows[0].real_estate_value;
-    const updatedAt = rows[0].real_estate_updated_at;
-    
+    const row = await readRow();
+    const { value: realEstateGrowth, meta } = readIndicator(row, 'real_estate');
+    if (realEstateGrowth === null) return NextResponse.json({ error: 'No real estate value stored yet (manual only)', meta });
+
     // NEW SCORING LOGIC for Real Estate (Swiss IMPI)
     let score = 0;
     if (realEstateGrowth > 6.0) score = 2;      // Above 6% YoY growth
@@ -24,9 +20,8 @@ export async function GET() {
     const responseData = { 
       value: realEstateGrowth,
       score: score,
-      source: "Swiss National Bank (IMPI)",
+      meta,
       nextPublication: "Quarterly",
-      updatedAt: updatedAt,
       description: "Swiss Residential Property Price Index YoY growth"
     };
     

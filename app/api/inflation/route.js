@@ -1,15 +1,14 @@
-import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
+import { readRow, readIndicator } from '../../lib/db';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Get live inflation data from database (populated by cron job)
-    const { rows } = await sql`SELECT inflation_value, inflation_updated_at FROM latest_indicators WHERE id = 1;`;
-    if (rows.length === 0) throw new Error("No inflation data found in database.");
-    
-    const cpi = rows[0].inflation_value;
-    const updatedAt = rows[0].inflation_updated_at;
-    
+    const row = await readRow();
+    const { value: cpi, meta } = readIndicator(row, 'inflation');
+    if (cpi === null) return NextResponse.json({ error: 'No inflation value stored yet', meta });
+
     // OPTIMIZED SCORING LOGIC - Based on 2000-2025 Backtesting
     // SNB acts preemptively before inflation reaches 2.0%
     let score = 0;
@@ -33,29 +32,11 @@ export async function GET() {
       interpretation = `Inflation at ${cpi}% - Deflationary risk, clear cut pressure`;
     }
 
-    // Historical data for the chart (enhanced with live data)
-    const history = [
-      { date: '2024-06', value: 1.5 }, 
-      { date: '2024-07', value: 1.6 },
-      { date: '2024-08', value: 1.5 }, 
-      { date: '2024-09', value: 1.4 },
-      { date: '2024-10', value: 1.3 }, 
-      { date: '2024-11', value: 1.2 },
-      { date: '2024-12', value: 1.3 }, 
-      { date: '2025-01', value: 1.1 },
-      { date: '2025-02', value: 1.2 }, 
-      { date: '2025-03', value: 1.3 },
-      { date: '2025-04', value: 0.0 }, 
-      { date: '2025-05', value: cpi }, // Use live data for latest point
-    ];
-
     const responseData = { 
       value: cpi, 
       score: score, 
-      source: "Swiss FSO (Live)", 
+      meta,
       nextPublication: "Monthly",
-      updatedAt: updatedAt,
-      historicalData: history,
       description: "Swiss CPI inflation rate (YoY %) - Optimized thresholds",
       interpretation: interpretation,
       thresholds: {

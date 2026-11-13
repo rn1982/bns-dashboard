@@ -1,369 +1,260 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import IndicatorCard from './components/IndicatorCard';
+import { useState, useEffect, useCallback } from 'react';
+import IndicatorCard, { FreshnessBadge, formatDate, formatDateTime } from './components/IndicatorCard';
 import ManualDataInput from './components/ManualDataInput';
+import { WEIGHTS, LABELS, computeForecast } from './lib/model';
 
-// UPDATED WEIGHTS - New 7-indicator model
-const WEIGHTS = {
-  inflation: 0.30,     
-  realEstate: 0.20,    
-  exchangeRate: 0.15,  
-  ecb: 0.15,           
-  gdp: 0.10,           
-  unemployment: 0.05,  
-  fed: 0.05,           
+const ROUTES = {
+  inflation: '/api/inflation',
+  realEstate: '/api/real-estate',
+  exchangeRate: '/api/exchange-rate',
+  economicHealth: '/api/economic-health',
+  internationalRates: '/api/international-rates',
+  marketExpectations: '/api/market-expectations',
+  status: '/api/status',
 };
+
+// One failing route must not take the whole page down: each result is either
+// the route's JSON or { error }.
+async function fetchJson(url) {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    return res.ok || body.error ? body : { ...body, error: `HTTP ${res.status}` };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+const pct = v => `${v}%`;
+
+// Card order and how each card reads its data. Model keys match WEIGHTS.
+const CARDS = [
+  { key: 'inflation', get: d => d.inflation, format: pct },
+  { key: 'realEstate', get: d => d.realEstate, format: v => `${v}% YoY` },
+  { key: 'exchangeRate', get: d => d.exchangeRate, format: v => v.toFixed(4) },
+  { key: 'ecb', get: d => d.internationalRates?.ecb, format: pct, subtitle: x => x?.stance },
+  { key: 'gdp', get: d => d.economicHealth?.gdp, format: pct },
+  { key: 'unemployment', get: d => d.economicHealth?.unemployment, format: pct },
+  { key: 'fed', get: d => d.internationalRates?.fed, format: pct, subtitle: x => x?.stance },
+];
+
+const VERDICT_STYLE = {
+  'HIKE-strong': 'bg-red-200 text-red-900 border-red-400',
+  'HIKE-moderate': 'bg-red-100 text-red-800 border-red-300',
+  'HOLD-neutral': 'bg-gray-100 text-gray-800 border-gray-300',
+  'CUT-moderate': 'bg-green-100 text-green-800 border-green-300',
+  'CUT-strong': 'bg-green-200 text-green-900 border-green-400',
+};
+
+function CronBanner({ status }) {
+  if (!status) return null;
+  if (status.error) {
+    return <div className="mb-4 p-3 rounded bg-red-50 border border-red-300 text-sm text-red-800">Database error: {status.error}</div>;
+  }
+  if (!status.lastCronRunAt) {
+    return (
+      <div className="mb-4 p-3 rounded bg-amber-50 border border-amber-300 text-sm text-amber-900">
+        The daily data refresh has not run yet with the new data layer. Values below may be old.
+      </div>
+    );
+  }
+  const ok = status.cronOk && !status.failures.length;
+  return (
+    <div className={`mb-4 p-3 rounded border text-sm ${ok ? 'bg-green-50 border-green-200 text-green-900' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+      Last automatic refresh: <strong>{formatDateTime(status.lastCronRunAt)}</strong>
+      {ok ? ' — all live sources OK.' : (
+        <>
+          {' '}— failed: {status.failures.map(f => f.key).join(', ')}.
+          <span className="block text-xs mt-1 opacity-80">{status.failures.map(f => `${f.key}: ${f.error}`).join(' · ')}</span>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function HomePage() {
   const [allData, setAllData] = useState({});
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [showManualInput, setShowManualInput] = useState(false); // NOUVEAU STATE pour contrôler la modal
+  const [showManualInput, setShowManualInput] = useState(false);
 
-  useEffect(() => {
-    const fetchAllData = async () => {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const [
-          inflationRes, 
-          realEstateRes,
-          exchangeRateRes, 
-          economicHealthRes, 
-          internationalRatesRes,
-          marketExpectationsRes
-        ] = await Promise.all([
-          fetch('/api/inflation').then(res => res.json()),
-          fetch('/api/real-estate').then(res => res.json()),
-          fetch('/api/exchange-rate').then(res => res.json()),
-          fetch('/api/economic-health').then(res => res.json()),
-          fetch('/api/international-rates').then(res => res.json()),
-          fetch('/api/market-expectations').then(res => res.json())
-        ]);
-        
-        setAllData({
-          inflation: inflationRes,
-          realEstate: realEstateRes,
-          exchangeRate: exchangeRateRes,
-          economicHealth: economicHealthRes,
-          internationalRates: internationalRatesRes,
-          marketExpectations: marketExpectationsRes,
-        });
-        
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-        setError(error.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchAllData();
+  const loadAll = useCallback(async () => {
+    setIsLoading(true);
+    const keys = Object.keys(ROUTES);
+    const results = await Promise.all(keys.map(k => fetchJson(ROUTES[k])));
+    setAllData(Object.fromEntries(keys.map((k, i) => [k, results[i]])));
+    setIsLoading(false);
   }, []);
 
-  // Fonction pour recharger toutes les données
-  const refreshAllData = async () => {
-    console.log('🔄 Data updated, refreshing dashboard...');
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const [
-        inflationRes, 
-        realEstateRes,
-        exchangeRateRes, 
-        economicHealthRes, 
-        internationalRatesRes,
-        marketExpectationsRes
-      ] = await Promise.all([
-        fetch('/api/inflation').then(res => res.json()),
-        fetch('/api/real-estate').then(res => res.json()),
-        fetch('/api/exchange-rate').then(res => res.json()),
-        fetch('/api/economic-health').then(res => res.json()),
-        fetch('/api/international-rates').then(res => res.json()),
-        fetch('/api/market-expectations').then(res => res.json())
-      ]);
-      
-      setAllData({
-        inflation: inflationRes,
-        realEstate: realEstateRes,
-        exchangeRate: exchangeRateRes,
-        economicHealth: economicHealthRes,
-        internationalRates: internationalRatesRes,
-        marketExpectations: marketExpectationsRes,
-      });
-      
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
-    }
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const cards = CARDS.map(c => ({ ...c, data: c.get(allData) }));
+  const scores = Object.fromEntries(cards.map(c => [c.key, c.data && !c.data.error ? c.data.score : null]));
+  const forecast = isLoading ? null : computeForecast(scores);
+  const stale = cards.filter(c => c.data && !c.data.error && c.data.meta?.status === 'stale').map(c => c.key);
+  const nextMeeting = allData.internationalRates?.nextMeeting;
+  const market = allData.marketExpectations;
+  const comparison = forecast?.verdict && market && !market.error
+    ? (forecast.verdict.direction === market.direction
+      ? { message: 'Model and market agree', color: 'text-green-700' }
+      : { message: 'Model and market disagree', color: 'text-red-700' })
+    : null;
+
+  // Current values for the manual form, keyed by the form's field names.
+  const current = {
+    inflation: allData.inflation,
+    snbRate: market && { value: market.currentSNBRate ?? null, meta: market.snbMeta },
+    gdp: allData.economicHealth?.gdp,
+    unemployment: allData.economicHealth?.unemployment,
+    realEstate: allData.realEstate,
+    exchangeRate: allData.exchangeRate,
+    ecbRate: allData.internationalRates?.ecb,
+    fedRate: allData.internationalRates?.fed,
+    saronFutures: market && { value: market.futuresPrice ?? null, meta: market.saronMeta },
   };
-
-  const calculateFinalVerdict = () => {
-    if (isLoading || Object.values(allData).some(d => !d || d.error)) {
-      return null;
-    }
-    
-    try {
-      const inflationScore = allData.inflation?.score || 0;
-      const realEstateScore = allData.realEstate?.score || 0;
-      const exchangeRateScore = allData.exchangeRate?.score || 0;
-      const gdpScore = allData.economicHealth?.gdp?.score || 0;
-      const unemploymentScore = allData.economicHealth?.unemployment?.score || 0;
-      const ecbScore = allData.internationalRates?.ecb?.score || 0;
-      const fedScore = allData.internationalRates?.fed?.score || 0;
-      
-      const globalScore = 
-        (inflationScore * WEIGHTS.inflation) +
-        (realEstateScore * WEIGHTS.realEstate) +
-        (exchangeRateScore * WEIGHTS.exchangeRate) +
-        (gdpScore * WEIGHTS.gdp) +
-        (unemploymentScore * WEIGHTS.unemployment) +
-        (ecbScore * WEIGHTS.ecb) +
-        (fedScore * WEIGHTS.fed);
-      
-      // OPTIMIZED THRESHOLDS - Based on 2000-2025 Backtesting
-      // Narrower neutrality band: [-0.35, +0.35] instead of [-0.5, +0.5]
-      let verdict = {};
-      if (globalScore >= 1.0) {
-        verdict = { 
-          text: 'Strong HIKE signal (50bp+ possible)', 
-          bgColor: 'bg-red-200', 
-          textColor: 'text-red-900', 
-          borderColor: 'border-red-400' 
-        };
-      } else if (globalScore >= 0.35) { // OPTIMIZED: 0.35 instead of 0.5
-        verdict = { 
-          text: 'Moderate HIKE signal (25bp likely)', 
-          bgColor: 'bg-red-100', 
-          textColor: 'text-red-800', 
-          borderColor: 'border-red-300' 
-        };
-      } else if (globalScore > -0.35) { // OPTIMIZED: -0.35 instead of -0.5
-        verdict = { 
-          text: 'HOLD (no change expected)', 
-          bgColor: 'bg-gray-100', 
-          textColor: 'text-gray-800', 
-          borderColor: 'border-gray-300' 
-        };
-      } else if (globalScore > -1.0) {
-        verdict = { 
-          text: 'Moderate CUT signal (25bp likely)', 
-          bgColor: 'bg-green-100', 
-          textColor: 'text-green-800', 
-          borderColor: 'border-green-300' 
-        };
-      } else {
-        verdict = { 
-          text: 'Strong CUT signal (50bp possible)', 
-          bgColor: 'bg-green-200', 
-          textColor: 'text-green-900', 
-          borderColor: 'border-green-400' 
-        };
-      }
-      
-      return { 
-        ...verdict, 
-        score: globalScore.toFixed(2), 
-        nextMeeting: allData.internationalRates?.nextMeeting || "TBD",
-        optimizationNote: "Thresholds optimized from 2000-2025 backtesting"
-      };
-    } catch (e) { 
-      return null; 
-    }
-  };
-
-  const finalVerdict = calculateFinalVerdict();
-  const marketExpectation = allData.marketExpectations;
-
-  // Helper function to get market vs model comparison
-  const getMarketModelComparison = () => {
-    if (!finalVerdict || !marketExpectation || marketExpectation.error) return null;
-    
-    const modelDirection = finalVerdict.text.includes('HIKE') ? 'HIKE' : 
-                          finalVerdict.text.includes('CUT') ? 'CUT' : 'HOLD';
-    const marketDirection = marketExpectation.direction;
-    
-    if (modelDirection === marketDirection) {
-      return { status: 'ALIGNED', message: 'Model and market agree', color: 'text-green-600' };
-    } else {
-      return { status: 'DIVERGED', message: 'Model vs market divergence!', color: 'text-red-600' };
-    }
-  };
-
-  const comparison = getMarketModelComparison();
-
-  if (error) {
-    return (
-      <main className="bg-gray-50 min-h-screen p-4 sm:p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-            <strong>Error:</strong> {error}
-          </div>
-        </div>
-      </main>
-    );
-  }
 
   return (
-    <main className="bg-gray-50 min-h-screen p-4 sm:p-8">
+    <main className="bg-gray-50 min-h-screen p-4 sm:p-8 text-gray-900">
       <div className="max-w-7xl mx-auto">
-        <header className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
-            SNB Monetary Policy Dashboard
-          </h1>
-          <p className="mt-2 text-lg text-gray-600">
-            Professional forecasting with real estate prices and SARON futures analysis.
+        <header className="mb-6">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">SNB Monetary Policy Dashboard</h1>
+          <p className="mt-2 text-gray-600">
+            Seven indicators, weighted into a HIKE / HOLD / CUT forecast for the next SNB meeting, compared with SARON futures.
           </p>
         </header>
 
-        {/* Manual Data Input - Button or Modal */}
-        {!showManualInput ? (
-          // Bouton pour ouvrir la modal
-          <div className="mb-6">
-            <button 
-              onClick={() => setShowManualInput(true)}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center gap-2 shadow-md"
-            >
-              <span>📝</span>
-              <span>Manual Data Update</span>
-            </button>
-          </div>
-        ) : (
-          // Modal de mise à jour manuelle
-          <div className="mb-6">
-            <ManualDataInput 
-              onUpdate={() => {
-                refreshAllData();
-                setShowManualInput(false); // Fermer la modal après mise à jour
-              }}
-            />
-            {/* Bouton pour fermer la modal */}
-            <div className="mt-4">
-              <button 
-                onClick={() => setShowManualInput(false)}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors duration-200"
-              >
-                ✕ Close
-              </button>
-            </div>
-          </div>
-        )}
+        <CronBanner status={allData.status} />
 
-        {/* Model Forecast */}
         <div className="mb-6">
-          {finalVerdict ? (
-            <div className={`border-l-4 ${finalVerdict.borderColor} ${finalVerdict.bgColor} p-4 rounded-r-lg shadow`}>
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className={`text-sm font-bold uppercase tracking-wider ${finalVerdict.textColor}`}>
-                    Model Forecast
-                  </h2>
-                  <p className={`text-2xl font-bold mt-1 ${finalVerdict.textColor}`}>
-                    {finalVerdict.text}
-                  </p>
-                  <p className={`text-sm font-semibold mt-1 ${finalVerdict.textColor}`}>
-                    Global Weighted Score: {finalVerdict.score}
-                  </p>
-                </div>
-                {finalVerdict.nextMeeting && (
-                  <div className="text-right">
-                    <h3 className={`text-sm font-bold ${finalVerdict.textColor}`}>
-                      NEXT SNB MEETING
-                    </h3>
-                    <p className={`text-lg font-semibold ${finalVerdict.textColor}`}>
-                      {finalVerdict.nextMeeting}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-gray-100 p-4 rounded-lg animate-pulse h-24 flex items-center justify-center">
-              <span className="text-gray-600">
-                {isLoading ? "Loading data..." : "Calculating forecast..."}
-              </span>
+          <button
+            onClick={() => setShowManualInput(v => !v)}
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 shadow"
+          >
+            {showManualInput ? '✕ Close manual update' : '📝 Manual data update'}
+          </button>
+          {showManualInput && (
+            <div className="mt-4">
+              <ManualDataInput
+                current={current}
+                nextMeeting={nextMeeting}
+                authRequired={allData.status?.manualAuthRequired}
+                onUpdate={loadAll}
+              />
             </div>
           )}
         </div>
 
-        {/* Enhanced Market Expectations with Professional SARON Analysis */}
-        {marketExpectation && !marketExpectation.error && (
-          <div className="mb-8">
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg shadow">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-blue-900">
-                    Market Expectations (SARON Futures)
+        {/* Model forecast */}
+        <section className="mb-6">
+          {isLoading ? (
+            <div className="bg-gray-100 p-4 rounded-lg animate-pulse h-24 flex items-center justify-center text-gray-600">Loading data…</div>
+          ) : !forecast.verdict ? (
+            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded-r-lg shadow">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-red-900">Model forecast</h2>
+              <p className="text-xl font-bold mt-1 text-red-900">Not enough data for a forecast</p>
+              <p className="text-sm text-red-800 mt-1">
+                Only {Math.round(forecast.coverage * 100)}% of the model weight is available. Missing: {forecast.missing.map(k => LABELS[k]).join(', ')}.
+              </p>
+            </div>
+          ) : (
+            <div className={`border-l-4 p-4 rounded-r-lg shadow ${VERDICT_STYLE[`${forecast.verdict.direction}-${forecast.verdict.strength}`]}`}>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider">
+                    Model forecast {forecast.partial && <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-amber-200 text-amber-900 normal-case tracking-normal">Partial</span>}
                   </h2>
-                  <p className="text-xl font-bold mt-1 text-blue-800">
-                    {marketExpectation.expectationText}
-                  </p>
-                  <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
-                    <div>
-                      <p className="text-blue-700">
-                        <span className="font-semibold">Probability:</span> {marketExpectation.probability}%
-                      </p>
-                      <p className="text-blue-700">
-                        <span className="font-semibold">Expected:</span> {marketExpectation.expectedChangeBp}bp
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-blue-700">
-                        <span className="font-semibold">Signal:</span> {marketExpectation.signalStrength}
-                      </p>
-                      <p className="text-blue-700">
-                        <span className="font-semibold">Move Size:</span> {marketExpectation.moveSize}
-                      </p>
-                    </div>
-                  </div>
+                  <p className="text-2xl font-bold mt-1">{forecast.verdict.text}</p>
+                  <p className="text-sm font-semibold mt-1">Global weighted score: {forecast.score.toFixed(2)}</p>
                 </div>
-                <div className="text-right ml-4">
-                  <h3 className="text-sm font-bold text-blue-900">FUTURES DATA</h3>
-                  <p className="text-lg font-semibold text-blue-800">
-                    {marketExpectation.futuresPrice}
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    Implied: {marketExpectation.impliedRate}%
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    Current: {marketExpectation.currentSNBRate}%
-                  </p>
+                <div className="sm:text-right">
+                  <h3 className="text-sm font-bold">NEXT SNB MEETING</h3>
+                  <p className="text-lg font-semibold">{nextMeeting?.date ? formatDate(nextMeeting.date) : 'Not set'}</p>
+                  {nextMeeting && nextMeeting.status !== 'manual' && (
+                    <span className="inline-flex items-center gap-1 text-xs mt-1">
+                      <FreshnessBadge meta={{ reason: nextMeeting.reason }} status={nextMeeting.status} /> {nextMeeting.reason}
+                    </span>
+                  )}
                 </div>
               </div>
-              
-              {/* Model vs Market Comparison */}
-              {comparison && (
-                <div className="mt-4 pt-3 border-t border-blue-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-blue-900">Model vs Market:</span>
-                    <span className={`text-sm font-bold ${comparison.color}`}>
-                      {comparison.message}
-                    </span>
-                  </div>
+              {(forecast.partial || stale.length > 0) && (
+                <div className="mt-3 pt-3 border-t border-black/10 text-sm space-y-1">
+                  {forecast.partial && (
+                    <p>
+                      <strong>Partial:</strong> missing {forecast.missing.map(k => `${LABELS[k]} (${Math.round(WEIGHTS[k] * 100)}%)`).join(', ')}.
+                      The other weights were scaled up to cover {Math.round(forecast.coverage * 100)}% of the model. Less reliable than the full model.
+                    </p>
+                  )}
+                  {stale.length > 0 && (
+                    <p><strong>Uses stale data:</strong> {stale.map(k => LABELS[k]).join(', ')}. Check those cards.</p>
+                  )}
                 </div>
               )}
             </div>
-          </div>
+          )}
+        </section>
+
+        {/* Market view */}
+        {market && (
+          <section className="mb-8">
+            {market.error ? (
+              <div className="bg-blue-50 border-l-4 border-blue-300 p-4 rounded-r-lg shadow text-sm text-blue-900">
+                <strong>Market expectations unavailable:</strong> {market.error}
+              </div>
+            ) : (
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg shadow">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                  <div className="flex-1">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-blue-900 flex items-center gap-2">
+                      Market expectations (SARON futures) <FreshnessBadge meta={market.saronMeta} />
+                    </h2>
+                    <p className="text-xl font-bold mt-1 text-blue-800">{market.expectationText}</p>
+                    <div className="grid grid-cols-2 gap-x-4 mt-3 text-sm text-blue-800">
+                      <p><span className="font-semibold">Probability:</span> {market.probability}%</p>
+                      <p><span className="font-semibold">Signal:</span> {market.signalStrength}</p>
+                      <p><span className="font-semibold">Expected:</span> {market.expectedChangeBp}bp</p>
+                      <p><span className="font-semibold">Move size:</span> {market.moveSize}</p>
+                    </div>
+                  </div>
+                  <div className="sm:text-right text-blue-800">
+                    <h3 className="text-sm font-bold text-blue-900">FUTURES DATA</h3>
+                    <p className="text-lg font-semibold">{market.futuresPrice}</p>
+                    <p className="text-xs">Implied: {market.impliedRate}%</p>
+                    <p className="text-xs flex sm:justify-end items-center gap-1">
+                      SNB rate: {market.currentSNBRate}% <FreshnessBadge meta={market.snbMeta} />
+                    </p>
+                    {market.saronMeta?.observedAt && <p className="text-xs">Price date: {formatDate(market.saronMeta.observedAt)}</p>}
+                  </div>
+                </div>
+                {comparison && (
+                  <div className="mt-4 pt-3 border-t border-blue-200 flex items-center justify-between text-sm">
+                    <span className="font-medium text-blue-900">Model vs market:</span>
+                    <span className={`font-bold ${comparison.color}`}>{comparison.message}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         )}
 
-        {/* Indicator Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <IndicatorCard title="1. Inflation (30%)" data={allData.inflation} />
-          <IndicatorCard title="2. Real Estate (20%)" data={allData.realEstate} />
-          <IndicatorCard title="3. EUR/CHF (15%)" data={allData.exchangeRate} />
-          <IndicatorCard title="4. ECB Policy (15%)" data={allData.internationalRates?.ecb} />
-          <IndicatorCard title="5. GDP Growth (10%)" data={allData.economicHealth?.gdp} />
-          <IndicatorCard title="6. Unemployment (5%)" data={allData.economicHealth?.unemployment} />
-          <IndicatorCard title="7. Fed Policy (5%)" data={allData.internationalRates?.fed} />
+        {/* Indicator cards; titles are built from WEIGHTS so they can't drift. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {cards.map((c, i) => isLoading ? (
+            <div key={c.key} className="bg-white rounded-lg shadow p-5 h-44 animate-pulse" />
+          ) : (
+            <IndicatorCard
+              key={c.key}
+              title={`${i + 1}. ${LABELS[c.key]}`}
+              weight={WEIGHTS[c.key]}
+              data={c.data}
+              format={c.format}
+              subtitle={c.subtitle?.(c.data)}
+            />
+          ))}
         </div>
-        
+
         <footer className="text-center mt-12 text-sm text-gray-500">
-          <p>Professional SNB analysis with institutional-grade SARON futures interpretation. For informational purposes only.</p>
+          <p>For informational purposes only. Badges: Live = fetched automatically and recent · Manual = typed in · Stale = older than expected for that series.</p>
         </footer>
       </div>
     </main>
