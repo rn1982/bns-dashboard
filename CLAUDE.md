@@ -12,27 +12,30 @@ SNB (Swiss National Bank) monetary-policy dashboard: a Next.js 15 App Router app
 npm run dev     # local dev server on http://localhost:3000
 npm run build   # production build
 npm run lint    # next lint (ESLint 9, eslint-config-next)
+npm test        # node --test on app/**/*.test.mjs (stance logic)
 ```
 
-There is no test suite.
+Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dryRun=1`. In the cloud sandbox, start the dev server with `NODE_USE_ENV_PROXY=1` or Node's fetch can't reach the internet.
 
 ## Environment
 
 - `POSTGRES_URL` (and the related vars read by `@vercel/postgres`): every API route reads and writes the database.
-- `FRED_API_KEY`: the FRED fetches in `app/lib/fred.js`.
-- `ALPHA_VANTAGE_API_KEY`: EUR/CHF (`app/api/cron/update-exchange-rate/route.js`).
+- `FRED_API_KEY`: the FRED fetches in `app/lib/sources/fred.js` (Fed rate, Swiss real GDP).
+- `CRON_SECRET`: if set, `/api/cron/*` requires `Authorization: Bearer <CRON_SECRET>` (Vercel cron sends it automatically).
+- `ALPHA_VANTAGE_API_KEY`: no longer used (EUR/CHF now comes from the ECB).
 
 ## Architecture
 
 **Data flow is two-stage, and the database sits in the middle:**
 
-1. **Writers: cron routes** (`app/api/cron/*`) fetch external sources and `UPDATE latest_indicators ... WHERE id = 1`. `vercel.json` schedules only `/api/cron/update-all` (daily 08:00 UTC). That route calls `update-swiss-data`, `update-fred` and `update-exchange-rate` over HTTP using `https://${VERCEL_URL}`. The other cron routes (`update-swiss-cpi`, `update-swiss-realtime`, `manual-backup`, `manual-data-update`) are not scheduled and only run when called by hand.
-2. **Manual writer:** `POST /api/manual-data-update` (used by `app/components/ManualDataInput.js`) writes inflation, SNB rate, SARON futures price (validated 95–105; it stores `market_implied_rate = 100 - price`), GDP, unemployment, real estate and EUR/CHF. The automatic crons deliberately do **not** overwrite inflation, unemployment or real estate, so that manual values persist.
+1. **Writer: cron.** `vercel.json` schedules `/api/cron/update-all` (daily 08:00 UTC). It imports the fetchers in `app/lib/sources/` directly (no HTTP self-calls) and writes each indicator via `writeLive` in `app/lib/db.js`. Live sources: SNB data portal (policy rate `snbgwdzid/LZ`, CPI YoY `plkopr/VVP`), ECB data API (EUR/CHF reference rate as CHF per EUR, deposit facility rate + stance), FRED (Fed upper target `DFEDTARU` + stance, Swiss real GDP `CLVNASAC01CHQ189S` turned into YoY %). Unemployment, real estate, SARON futures and next meeting date have no live source: manual only. The route returns a per-indicator report (`updated` / `kept_manual` / `failed`), HTTP 500 if anything failed, and stores it in `last_cron_report`.
+2. **Manual writer:** `POST /api/manual-data-update` (used by `app/components/ManualDataInput.js`) validates ranges from `app/lib/indicators.js` and writes via `writeManual`. Optional `observedAt` (YYYY-MM-DD, default today). It is not authenticated.
+   **Manual vs live rule:** each indicator has `<prefix>_observed_at`, `<prefix>_origin` (`live`|`manual`) and `<prefix>_source` columns (added on the fly by `ensureSchema`). The cron overwrites a manual value only when its observation date is later than the manual one.
 3. **Readers: indicator routes** (`/api/inflation`, `/api/real-estate`, `/api/exchange-rate`, `/api/economic-health`, `/api/international-rates`, `/api/market-expectations`) only `SELECT` from `latest_indicators` and turn raw values into a `score` in [-2, +2] plus display fields. They never call external APIs, so "live" data is only as fresh as the last cron run, even though the labels say "FRED (Live)".
 
-The single source of truth is the one-row table `latest_indicators` (id = 1). No schema or migration file is in the repo. Infer the column names from the SQL in the routes (`*_value`, `*_updated_at`, `ecb_stance`, `fed_stance`, `next_meeting_date`, `saron_futures_price`, `market_implied_rate`, …). `app/api/debug/database/route.js` dumps the table. `data/manual_indicators.json` is a static, out-of-date snapshot that no code reads.
+The single source of truth is the one-row table `latest_indicators` (id = 1). No schema or migration file is in the repo. Column names per indicator are listed in `app/lib/indicators.js`; `ensureSchema()` adds missing provenance columns with `ADD COLUMN IF NOT EXISTS`. `app/api/debug/database/route.js` dumps the table.
 
-**FRED (`app/lib/fred.js`):** `FRED_SERIES` holds the series IDs (ECB deposit rate `ECBDFR`, Fed upper target `DFEDTARU`, Swiss real GDP, SNB rate). `determineCentralBankStance` turns the change in recent observations into one of seven stance strings (`hike_aggressive` … `cut_aggressive`). `/api/international-rates` then maps each stance to a score. If you change the stance vocabulary, update both places.
+**Stance (`app/lib/stance.js`):** `stanceFromSeries` compares the latest rate with the rate on or before latest date − 90 days and returns one of seven stance strings (`hike_aggressive` … `cut_aggressive`, listed in `app/lib/indicators.js`). `/api/international-rates` maps each stance to a score. If you change the vocabulary, update both places.
 
 **Scoring and verdict live in the client:** `app/page.js` (a `'use client'` component) fetches all 6 reader routes in parallel and applies `WEIGHTS` (inflation 0.30, real estate 0.20, EUR/CHF 0.15, ECB 0.15, GDP 0.10, unemployment 0.05, Fed 0.05). It maps the global score to a verdict with thresholds ±0.35 and ±1.0, which came from 2000–2025 backtesting (the backtest code is not in the repo). The card titles in `page.js` repeat the weights as text, so keep them in sync. If any reader route returns `error`, no verdict is shown.
 

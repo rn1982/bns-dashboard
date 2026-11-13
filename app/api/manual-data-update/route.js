@@ -1,124 +1,72 @@
-import { sql } from '@vercel/postgres';
+// Manual override, used by app/components/ManualDataInput.js.
+// A manual value is stored with origin = 'manual' and is kept until the cron
+// finds a live observation dated AFTER it (see writeLive in app/lib/db.js).
+//
+// Body: { inflation, snbRate, saronFutures, gdp, unemployment, realEstate, exchangeRate }
+// Optional: observedAt ('YYYY-MM-DD', the date the values refer to; defaults to today).
 import { NextResponse } from 'next/server';
+import { ensureSchema, writeManual } from '../../lib/db';
+import { INDICATORS } from '../../lib/indicators';
+
+export const dynamic = 'force-dynamic';
+
+// request field -> indicator key
+const FIELDS = {
+  inflation: 'inflation',
+  snbRate: 'snb_rate',
+  saronFutures: 'saron_futures',
+  gdp: 'gdp',
+  unemployment: 'unemployment',
+  realEstate: 'real_estate',
+  exchangeRate: 'exchange_rate',
+};
 
 export async function POST(request) {
+  let body;
   try {
-    const body = await request.json();
-    console.log('📝 Manual data update received:', body);
-
-    // Préparer les mises à jour avec paramètres sécurisés
-    const updates = [];
-    const values = [];
-    let paramIndex = 1;
-
-    if (body.inflation !== undefined) {
-      updates.push(`inflation_value = $${paramIndex}, inflation_updated_at = NOW()`);
-      values.push(parseFloat(body.inflation));
-      paramIndex++;
-    }
-
-    if (body.snbRate !== undefined) {
-      updates.push(`snb_policy_rate_value = $${paramIndex}, snb_updated_at = NOW()`);
-      values.push(parseFloat(body.snbRate));
-      paramIndex++;
-    }
-
-    // NOUVEAU: Support pour SARON futures
-    if (body.saronFutures !== undefined) {
-      const saronPrice = parseFloat(body.saronFutures);
-      
-      // Validation des données SARON
-      if (saronPrice < 95 || saronPrice > 105) {
-        return NextResponse.json({
-          success: false,
-          error: 'Prix SARON futures invalide. Doit être entre 95-105 (ex: 99.750)'
-        }, { status: 400 });
-      }
-      
-      // Calculer le taux implicite
-      const impliedRate = 100 - saronPrice;
-      
-      updates.push(`saron_futures_price = $${paramIndex}`);
-      values.push(saronPrice);
-      paramIndex++;
-      
-      updates.push(`market_implied_rate = $${paramIndex}`);
-      values.push(impliedRate);
-      paramIndex++;
-      
-      console.log(`📊 SARON update: Price ${saronPrice} → Implied rate ${impliedRate.toFixed(3)}%`);
-    }
-
-    if (body.gdp !== undefined) {
-      updates.push(`gdp_value = $${paramIndex}, gdp_updated_at = NOW()`);
-      values.push(parseFloat(body.gdp));
-      paramIndex++;
-    }
-
-    if (body.unemployment !== undefined) {
-      updates.push(`unemployment_value = $${paramIndex}, unemployment_updated_at = NOW()`);
-      values.push(parseFloat(body.unemployment));
-      paramIndex++;
-    }
-
-    if (body.realEstate !== undefined) {
-      updates.push(`real_estate_value = $${paramIndex}, real_estate_updated_at = NOW()`);
-      values.push(parseFloat(body.realEstate));
-      paramIndex++;
-    }
-
-    if (body.exchangeRate !== undefined) {
-      updates.push(`exchange_rate_value = $${paramIndex}, exchange_rate_updated_at = NOW()`);
-      values.push(parseFloat(body.exchangeRate));
-      paramIndex++;
-    }
-
-    if (updates.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'No valid data provided for update'
-      }, { status: 400 });
-    }
-
-    // Exécuter la requête de manière sécurisée avec des paramètres
-    const query = `UPDATE latest_indicators SET ${updates.join(', ')} WHERE id = 1`;
-    
-    console.log('Executing query:', query);
-    console.log('With values:', values);
-    
-    await sql.query(query, values);
-
-    console.log('✅ Manual data update completed');
-
-    // Récupérer les données mises à jour pour confirmation
-    const { rows } = await sql`SELECT * FROM latest_indicators WHERE id = 1;`;
-    const updatedData = rows[0];
-
-    // Préparer la réponse avec détails SARON si mis à jour
-    const responseData = {
-      success: true,
-      message: 'Manual data update completed successfully',
-      updatedFields: Object.keys(body),
-      timestamp: new Date().toISOString()
-    };
-
-    // Ajouter les détails SARON si mis à jour
-    if (body.saronFutures !== undefined) {
-      responseData.saronDetails = {
-        futuresPrice: updatedData.saron_futures_price,
-        impliedRate: updatedData.market_implied_rate,
-        interpretation: `Prix ${updatedData.saron_futures_price} → Taux implicite ${updatedData.market_implied_rate.toFixed(3)}%`
-      };
-    }
-
-    return NextResponse.json(responseData);
-
-  } catch (error) {
-    console.error('❌ Manual data update failed:', error);
-    return NextResponse.json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    }, { status: 500 });
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Body must be JSON' }, { status: 400 });
   }
+
+  const observedAt = body.observedAt || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(observedAt)) {
+    return NextResponse.json({ success: false, error: 'observedAt must be YYYY-MM-DD' }, { status: 400 });
+  }
+
+  // Validate everything first, so a bad field doesn't leave a half-applied update.
+  const updates = [];
+  const errors = [];
+  for (const [field, key] of Object.entries(FIELDS)) {
+    if (body[field] === undefined || body[field] === null || body[field] === '') continue;
+    const value = Number(body[field]);
+    const { min, max } = INDICATORS[key];
+    if (!Number.isFinite(value) || value < min || value > max) {
+      errors.push(`${field} must be a number between ${min} and ${max}`);
+      continue;
+    }
+    const extra = key === 'saron_futures' ? { market_implied_rate: Math.round((100 - value) * 1000) / 1000 } : undefined;
+    updates.push({ field, key, value, extra });
+  }
+
+  if (errors.length) return NextResponse.json({ success: false, error: errors.join('; ') }, { status: 400 });
+  if (!updates.length) return NextResponse.json({ success: false, error: 'No valid data provided' }, { status: 400 });
+
+  try {
+    await ensureSchema();
+    for (const u of updates) {
+      await writeManual(u.key, { value: u.value, date: observedAt, extra: u.extra });
+    }
+  } catch (e) {
+    console.error('Manual data update failed:', e);
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    success: true,
+    message: 'Manual data update completed',
+    updatedFields: updates.map(u => u.field),
+    observedAt,
+    timestamp: new Date().toISOString(),
+  });
 }

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test \"app/**/*.test.mjs\""
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0",
