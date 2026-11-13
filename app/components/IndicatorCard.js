@@ -1,3 +1,6 @@
+'use client';
+import { useState } from 'react';
+
 // One indicator: value, score, and where the number comes from.
 // `data` is what the reader route returned: { value, score, meta, ... } or { error, meta }.
 
@@ -42,7 +45,34 @@ function scoreStyle(score) {
   return { text: 'text-gray-600', border: 'border-gray-400', label: 'neutral' };
 }
 
-export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle }) {
+// Drops the manual value and fetches the live source right away.
+export function RevertButton({ onRevert }) {
+  const [state, setState] = useState({ busy: false, error: null });
+  async function click() {
+    setState({ busy: true, error: null });
+    try {
+      await onRevert();
+      setState({ busy: false, error: null });
+    } catch (e) {
+      setState({ busy: false, error: e.message });
+    }
+  }
+  return (
+    <div className="pt-2">
+      <button
+        type="button"
+        onClick={click}
+        disabled={state.busy}
+        className="text-xs font-medium bg-white border border-blue-300 text-blue-800 px-2.5 py-1 rounded hover:bg-blue-50 disabled:opacity-50"
+      >
+        {state.busy ? 'Fetching live data…' : '↺ Revert to live'}
+      </button>
+      {state.error && <p className="text-red-700 mt-1">{state.error}</p>}
+    </div>
+  );
+}
+
+export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle, onRevert }) {
   const meta = data?.meta;
   const failed = !data || data.error;
   const status = failed ? (meta?.status === 'missing' ? 'missing' : 'error') : meta?.status;
@@ -83,6 +113,7 @@ export default function IndicatorCard({ title, weight, data, format = v => Strin
           {meta.updatedAt && <div><dt className="inline">Saved: </dt><dd className="inline">{formatDateTime(meta.updatedAt)}</dd></div>}
           {meta.reason && <div className={isStale ? 'text-amber-800 font-medium' : ''}>{meta.reason}</div>}
           {!meta.hasLiveSource && <div>No live source: manual entry only.</div>}
+          {meta.hasLiveSource && meta.origin === 'manual' && onRevert && <RevertButton onRevert={() => onRevert(meta.key)} />}
         </dl>
       )}
     </div>

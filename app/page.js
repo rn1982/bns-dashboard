@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import IndicatorCard, { FreshnessBadge, formatDate, formatDateTime } from './components/IndicatorCard';
+import IndicatorCard, { FreshnessBadge, RevertButton, formatDate, formatDateTime } from './components/IndicatorCard';
 import ManualDataInput from './components/ManualDataInput';
 import { WEIGHTS, LABELS, computeForecast } from './lib/model';
 
@@ -88,6 +88,22 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // "Revert to live" on a card. Throws so the card can show the error.
+  const revertToLive = useCallback(async key => {
+    const res = await fetch('/api/manual-data-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revert: [key] }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!result.success) {
+      throw new Error(res.status === 401
+        ? 'Admin key required: use Manual data update'
+        : result.error || `HTTP ${res.status}`);
+    }
+    await loadAll();
+  }, [loadAll]);
 
   const cards = CARDS.map(c => ({ ...c, data: c.get(allData) }));
   const scores = Object.fromEntries(cards.map(c => [c.key, c.data && !c.data.error ? c.data.score : null]));
@@ -232,6 +248,9 @@ export default function HomePage() {
                     <p className="text-xs flex sm:justify-end items-center gap-1">
                       SNB rate: {market.currentSNBRate}% <FreshnessBadge meta={market.snbMeta} />
                     </p>
+                    {market.snbMeta?.origin === 'manual' && (
+                      <div className="text-xs"><RevertButton onRevert={() => revertToLive('snb_rate')} /></div>
+                    )}
                     {market.saronMeta?.observedAt && <p className="text-xs">Price date: {formatDate(market.saronMeta.observedAt)}</p>}
                   </div>
                 </div>
@@ -258,6 +277,7 @@ export default function HomePage() {
               data={c.data}
               format={c.format}
               subtitle={c.subtitle?.(c.data)}
+              onRevert={revertToLive}
             />
           ))}
         </div>
