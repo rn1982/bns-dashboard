@@ -73,7 +73,12 @@ export default function ManualDataInput({ current = {}, nextMeeting, authRequire
     e.preventDefault();
     const body = Object.fromEntries(Object.entries(form).filter(([, v]) => v !== ''));
     if (!Object.keys(body).length) {
-      setMessage({ ok: false, text: 'Fill in at least one field.' });
+      setMessage({
+        ok: false,
+        text: observedAt !== today()
+          ? 'The observation date only applies to values you type in. To re-date a value, type it again (e.g. 4.3) with the new date.'
+          : 'Fill in at least one field.',
+      });
       return;
     }
     try {
@@ -137,7 +142,7 @@ export default function ManualDataInput({ current = {}, nextMeeting, authRequire
             <span className="block text-sm font-medium mb-1">The values below are for (observation date)</span>
             <input type="date" value={observedAt} max={today()} onChange={e => setObservedAt(e.target.value)} className={input} required />
             <span className="block text-xs text-gray-500 mt-1">
-              E.g. 2026-10-01 for October CPI. Used for the Stale badge and to decide when live data replaces yours.
+              Applies to every value you type below in this save (e.g. 2026-07-01 for a Q3 figure). To re-date a stored value, type the value again.
             </span>
           </label>
           {authRequired && (
