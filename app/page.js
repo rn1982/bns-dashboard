@@ -37,10 +37,10 @@ const CARDS = [
   { key: 'inflation', history: 'inflation', get: d => d.inflation, format: pct },
   { key: 'realEstate', history: 'real_estate', get: d => d.realEstate, format: v => `${v}% YoY` },
   { key: 'exchangeRate', history: 'exchange_rate', get: d => d.exchangeRate, format: v => Number(v).toFixed(4) },
-  { key: 'ecb', history: 'ecb_rate', get: d => d.internationalRates?.ecb, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
+  { key: 'ecb', history: 'ecb_rate', stepped: true, get: d => d.internationalRates?.ecb, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
   { key: 'gdp', history: 'gdp', get: d => d.economicHealth?.gdp, format: pct },
   { key: 'unemployment', history: 'unemployment', get: d => d.economicHealth?.unemployment, format: pct },
-  { key: 'fed', history: 'fed_rate', get: d => d.internationalRates?.fed, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
+  { key: 'fed', history: 'fed_rate', stepped: true, get: d => d.internationalRates?.fed, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
 ];
 
 const VERDICT_STYLE = {
@@ -291,6 +291,22 @@ export default function HomePage() {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {/* The rate the forecast is about: context only, not one of the 7 scored indicators. */}
+          {isLoading ? (
+            <div className="col-span-full bg-white rounded-lg shadow p-5 h-72 animate-pulse" />
+          ) : (
+            <IndicatorCard
+              title="SNB policy rate"
+              data={market ? { value: market.currentSNBRate ?? null, meta: market.snbMeta, ...(market.currentSNBRate == null && { error: 'No SNB policy rate stored yet' }) } : null}
+              format={pct}
+              subtitle="Context: the rate the forecast is about (not scored). History starts June 2019, when the SNB introduced it."
+              onRevert={revertToLive}
+              historyKey="snb_rate"
+              historyFrom={historyFrom}
+              stepped
+              wide
+            />
+          )}
           {cards.map((c, i) => isLoading ? (
             <div key={c.key} className="bg-white rounded-lg shadow p-5 h-72 animate-pulse" />
           ) : (
@@ -303,6 +319,7 @@ export default function HomePage() {
               subtitle={c.subtitle?.(c.data)}
               onRevert={revertToLive}
               historyKey={c.history}
+              stepped={c.stepped}
               historyFrom={historyFrom}
             />
           ))}

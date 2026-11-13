@@ -73,7 +73,8 @@ export function RevertButton({ onRevert }) {
   );
 }
 
-export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle, onRevert, historyKey, historyFrom }) {
+// No `score` in data (e.g. the SNB rate) = context card: no score line. wide: spans the whole grid row.
+export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle, onRevert, historyKey, historyFrom, stepped, wide }) {
   const meta = data?.meta;
   const failed = !data || data.error;
   const status = failed ? (meta?.status === 'missing' ? 'missing' : 'error') : meta?.status;
@@ -81,7 +82,7 @@ export default function IndicatorCard({ title, weight, data, format = v => Strin
   const isStale = status === 'stale';
 
   return (
-    <div className={`bg-white rounded-lg shadow p-5 border-l-4 ${isStale ? 'border-amber-400' : style.border} flex flex-col`}>
+    <div className={`bg-white rounded-lg shadow p-5 border-l-4 ${isStale ? 'border-amber-400' : style.border} flex flex-col ${wide ? 'col-span-full' : ''}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <h3 className="text-base font-semibold text-gray-900">
           {title}
@@ -94,22 +95,24 @@ export default function IndicatorCard({ title, weight, data, format = v => Strin
         <div className="flex-1">
           <p className="text-gray-700 text-sm">{data?.error || 'Could not load this indicator'}</p>
           <p className="text-xs text-gray-500 mt-2">
-            Left out of the forecast. You can enter it in <strong>Manual Data Update</strong>.
+            {weight !== undefined ? 'Left out of the forecast. ' : ''}You can enter it in <strong>Manual Data Update</strong>.
           </p>
         </div>
       ) : (
         <div className="flex-1">
           <p className="text-2xl font-bold text-blue-700">{format(data.value)}</p>
           {subtitle && <p className="text-sm text-gray-700 mt-1">{subtitle}</p>}
-          <p className={`text-sm font-semibold mt-2 ${style.text}`}>
-            Score: {data.score > 0 ? `+${data.score}` : data.score} <span className="font-normal">({style.label})</span>
-          </p>
+          {typeof data.score === 'number' && (
+            <p className={`text-sm font-semibold mt-2 ${style.text}`}>
+              Score: {data.score > 0 ? `+${data.score}` : data.score} <span className="font-normal">({style.label})</span>
+            </p>
+          )}
         </div>
       )}
 
       {historyKey && (
         <div className="mt-3">
-          <HistoryChart indicator={historyKey} from={historyFrom} format={format} />
+          <HistoryChart indicator={historyKey} from={historyFrom} format={format} stepped={stepped} tall={wide} />
         </div>
       )}
 

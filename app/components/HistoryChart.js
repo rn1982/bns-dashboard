@@ -30,7 +30,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const shortDate = d => `${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(2, 4)}`; // 'Oct 26'
 const longDate = d => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
 
-export default function HistoryChart({ indicator, from, format = v => String(v) }) {
+// stepped: draw as steps (for policy rates, which jump at meetings). tall: bigger chart for wide cards.
+export default function HistoryChart({ indicator, from, format = v => String(v), stepped = false, tall = false }) {
+  const h = tall ? 'h-44' : 'h-28';
   const [state, setState] = useState({ loading: true, points: [], error: null });
 
   useEffect(() => {
@@ -48,14 +50,14 @@ export default function HistoryChart({ indicator, from, format = v => String(v) 
   }, [indicator, from]);
 
   if (state.loading && !state.points.length) {
-    return <div className="h-28 rounded bg-gray-50 animate-pulse" />;
+    return <div className={`${h} rounded bg-gray-50 animate-pulse`} />;
   }
   if (state.error) {
-    return <p className="h-28 flex items-center justify-center text-xs text-gray-400">History unavailable: {state.error}</p>;
+    return <p className={`${h} flex items-center justify-center text-xs text-gray-400`}>History unavailable: {state.error}</p>;
   }
   if (state.points.length < 2) {
     return (
-      <p className="h-28 flex items-center justify-center text-center text-xs text-gray-400 px-4">
+      <p className={`${h} flex items-center justify-center text-center text-xs text-gray-400 px-4`}>
         No history in this range yet. It builds up from each value you save.
       </p>
     );
@@ -71,8 +73,8 @@ export default function HistoryChart({ indicator, from, format = v => String(v) 
       backgroundColor: 'rgba(37, 99, 235, 0.08)',
       fill: true,
       borderWidth: 1.5,
-      tension: 0.2,
-      stepped: false,
+      tension: stepped ? 0 : 0.2,
+      stepped: stepped ? 'after' : false,
       pointRadius: isManual.map(m => (m ? 3 : 0)),
       pointBackgroundColor: isManual.map(m => (m ? MANUAL : LINE)),
       pointBorderColor: isManual.map(m => (m ? MANUAL : LINE)),
@@ -98,7 +100,7 @@ export default function HistoryChart({ indicator, from, format = v => String(v) 
       x: {
         grid: { display: false },
         ticks: {
-          maxTicksLimit: 4,
+          maxTicksLimit: tall ? 8 : 4,
           maxRotation: 0,
           font: { size: 10 },
           color: '#9ca3af',
@@ -113,7 +115,7 @@ export default function HistoryChart({ indicator, from, format = v => String(v) 
   };
 
   return (
-    <div className={`h-28 ${state.loading ? 'opacity-50' : ''}`}>
+    <div className={`${h} ${state.loading ? 'opacity-50' : ''}`}>
       <Line data={data} options={options} />
     </div>
   );
