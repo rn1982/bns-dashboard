@@ -20,7 +20,7 @@ Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dry
 ## Environment
 
 - `POSTGRES_URL` (and the related vars read by `@vercel/postgres`): every API route reads and writes the database.
-- `FRED_API_KEY`: the FRED fetches in `app/lib/sources/fred.js` (Fed rate, Swiss real GDP).
+- `FRED_API_KEY`: the FRED fetch in `app/lib/sources/fred.js` (Fed rate only).
 - `CRON_SECRET`: if set, `/api/cron/*` requires `Authorization: Bearer <CRON_SECRET>` (Vercel cron sends it automatically).
 - `ALPHA_VANTAGE_API_KEY`: no longer used (EUR/CHF now comes from the ECB).
 
@@ -28,7 +28,13 @@ Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dry
 
 **Data flow is two-stage, and the database sits in the middle:**
 
-1. **Writer: cron.** `vercel.json` schedules `/api/cron/update-all` (daily 08:00 UTC). It imports the fetchers in `app/lib/sources/` directly (no HTTP self-calls) and writes each indicator via `writeLive` in `app/lib/db.js`. Live sources: SNB data portal (policy rate `snbgwdzid/LZ`, CPI YoY `plkopr/VVP`), ECB data API (EUR/CHF reference rate as CHF per EUR, deposit facility rate + stance), FRED (Fed upper target `DFEDTARU` + stance, Swiss real GDP (first working of `CLVMNACSCAB1GQCH`, `NGDPRSAXDCCHQ`) turned into YoY %). Unemployment, real estate, SARON futures and next meeting date have no live source: manual only. The route returns a per-indicator report (`updated` / `kept_manual` / `failed`), HTTP 500 if anything failed, and stores it in `last_cron_report`.
+1. **Writer: cron.** `vercel.json` schedules `/api/cron/update-all` (daily 08:00 UTC). It imports the fetchers in `app/lib/sources/` directly (no HTTP self-calls) and writes each indicator via `writeLive` in `app/lib/db.js`. Live sources:
+   - CPI YoY: FSO Excel `cc-d-05.02.08` (found through the FSO DAM API, column `% m-12`), with SNB `plkopr/VVP` as backup; the newer month wins. SNB lags FSO by ~3 weeks.
+   - SNB data portal: policy rate `snbgwdzid/LZ`, real GDP `gdprpq/WMF,BBIPS` (turned into YoY %; `gdpap` is NOMINAL, don't use it), jobless rate SA `amarbma/S1`.
+   - ECB data API: EUR/CHF reference rate (CHF per EUR, do not invert), deposit facility rate + stance.
+   - FRED: Fed upper target `DFEDTARU` + stance.
+   Real estate, SARON futures and next meeting date have no live source: manual only.
+   `read-excel-file` is listed in `serverExternalPackages` in `next.config.mjs` (its unzip dependency can't be bundled). The route returns a per-indicator report (`updated` / `kept_manual` / `failed`), HTTP 500 if anything failed, and stores it in `last_cron_report`.
 2. **Manual writer:** `POST /api/manual-data-update` (used by `app/components/ManualDataInput.js`) validates ranges from `app/lib/indicators.js` and writes via `writeManual`. Optional `observedAt` (YYYY-MM-DD, default today). It is not authenticated.
    **Manual vs live rule:** each indicator has `<prefix>_observed_at`, `<prefix>_origin` (`live`|`manual`) and `<prefix>_source` columns (added on the fly by `ensureSchema`). The cron overwrites a manual value only when its observation date is later than the manual one.
 3. **Readers: indicator routes** (`/api/inflation`, `/api/real-estate`, `/api/exchange-rate`, `/api/economic-health`, `/api/international-rates`, `/api/market-expectations`) only `SELECT` from `latest_indicators` and turn raw values into a `score` in [-2, +2] plus display fields. They never call external APIs, so "live" data is only as fresh as the last cron run, even though the labels say "FRED (Live)".

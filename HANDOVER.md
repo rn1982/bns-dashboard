@@ -38,9 +38,10 @@ Also worth cleaning up: `data/manual_indicators.json` is unused and out of date;
 ## Plan: four steps, in order
 
 ### Step 1: Fix the data layer (reliability first) — CODE DONE 2026-11-13, awaiting production check
-Done: direct fetchers in `app/lib/sources/`, SNB portal for policy rate and CPI, ECB for EUR/CHF and deposit rate, 90-day stance logic with tests, GDP converted from level to YoY %, `CRON_SECRET`, provenance columns + manual-vs-live rule, dead cron routes removed, `?dryRun=1`.
+Done: direct fetchers in `app/lib/sources/`, FSO Excel for CPI (SNB backup), SNB portal for policy rate, real GDP and unemployment, ECB for EUR/CHF and deposit rate, 90-day stance logic with tests, GDP converted from level to YoY %, `CRON_SECRET`, provenance columns + manual-vs-live rule, dead cron routes removed, `?dryRun=1`.
 Bugs found on the way: EUR/CHF was stored inverted (1.08 instead of 0.92, scoring +2 instead of −2); GDP would have been stored as a level (~180,000) instead of a growth %; the manual form posted to a `/api/cron/` route.
-Still open: FRED (Fed, GDP) only verifiable in production (needs `FRED_API_KEY`); manual endpoint has no auth; no live source yet for unemployment, real estate, SARON futures.
+Verified in a preview deployment: SNB rate, CPI, EUR/CHF, ECB, Fed. FRED's old Swiss GDP series was deleted, so GDP moved to SNB `gdprpq` (real). CPI moved to FSO because SNB lagged a month (showed Sep 0.99% while FSO had Oct 1.5%).
+Still open: manual endpoint has no auth; no live source yet for real estate, SARON futures.
 
 Original plan:
 - Replace the HTTP self-calls in `update-all` with direct imports of shared fetcher functions, e.g. `app/lib/sources/*.js`. Each fetcher returns `{ value, date, source }` or throws.

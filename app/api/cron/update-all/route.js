@@ -4,22 +4,42 @@
 import { NextResponse } from 'next/server';
 import { checkCronAuth } from '../../../lib/cronAuth';
 import { ensureSchema, writeLive, saveCronReport } from '../../../lib/db';
-import { fetchSnbPolicyRate, fetchSwissCpiYoY } from '../../../lib/sources/snb';
+import {
+  fetchSnbPolicyRate,
+  fetchSwissCpiYoY,
+  fetchSwissRealGdpYoY,
+  fetchSwissUnemployment,
+} from '../../../lib/sources/snb';
+import { fetchFsoCpiYoY } from '../../../lib/sources/fso';
 import { fetchEurChf, fetchEcbDepositRate } from '../../../lib/sources/ecb';
-import { fetchFedRate, fetchSwissGdpYoY } from '../../../lib/sources/fred';
+import { fetchFedRate } from '../../../lib/sources/fred';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// indicator key -> fetcher. Unemployment, real estate and SARON futures have no
-// verified live source yet: they stay manual.
+// Try several sources for the same indicator and keep the most recent observation
+// (first source wins a tie). Fails only if every source fails.
+function latestOf(...fetchers) {
+  return async () => {
+    const settled = await Promise.allSettled(fetchers.map(f => f()));
+    const ok = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+    if (!ok.length) throw new Error(settled.map(s => s.reason?.message).join(' | '));
+    const best = ok.reduce((a, b) => (b.date > a.date ? b : a));
+    const failed = settled.filter(s => s.status === 'rejected').map(s => s.reason?.message);
+    return failed.length ? { ...best, warnings: failed } : best;
+  };
+}
+
+// indicator key -> fetcher. Real estate and SARON futures have no verified live
+// source yet: they stay manual.
 const JOBS = {
   snb_rate: fetchSnbPolicyRate,
-  inflation: fetchSwissCpiYoY,
+  inflation: latestOf(fetchFsoCpiYoY, fetchSwissCpiYoY), // FSO is ~3 weeks ahead of SNB
   exchange_rate: fetchEurChf,
   ecb_rate: fetchEcbDepositRate,
   fed_rate: fetchFedRate,
-  gdp: fetchSwissGdpYoY,
+  gdp: fetchSwissRealGdpYoY,
+  unemployment: fetchSwissUnemployment,
 };
 
 const EXTRA = {
@@ -41,6 +61,7 @@ async function runJob(key, fetcher, dryRun) {
     observedAt: r.date,
     source: r.source,
     ...(r.stance && { stance: r.stance, stanceDetail: r.stanceDetail }),
+    ...(r.warnings && { warnings: r.warnings }),
   };
 }
 

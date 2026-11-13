@@ -4,12 +4,6 @@ import { stanceFromSeries } from '../stance';
 
 export const FRED_SERIES = {
   FED_RATE: 'DFEDTARU', // Fed funds target range, upper limit (daily)
-  // Swiss real GDP level, quarterly, seasonally adjusted. Tried in order; the first
-  // that answers wins. (CLVNASAC01CHQ189S, used before, was deleted from FRED.)
-  SWISS_REAL_GDP: [
-    'CLVMNACSCAB1GQCH', // Eurostat, chain-linked volumes
-    'NGDPRSAXDCCHQ', // IMF, real GDP
-  ],
 };
 
 async function fetchFredObservations(seriesId, observationStart) {
@@ -39,32 +33,4 @@ export async function fetchFedRate() {
     stance: s.stance,
     stanceDetail: `${s.from.value}% on ${s.from.date} → ${s.to.value}% on ${s.to.date}`,
   };
-}
-
-/**
- * Swiss real GDP growth, % vs the same quarter one year earlier.
- * FRED series are LEVELS; the model needs a growth rate, so compare with 4 quarters earlier.
- */
-export async function fetchSwissGdpYoY() {
-  const errors = [];
-  for (const id of FRED_SERIES.SWISS_REAL_GDP) {
-    try {
-      const obs = await fetchFredObservations(id, daysAgo(3 * 365));
-      if (obs.length < 5) throw new Error(`FRED ${id}: fewer than 5 quarters available`);
-      const last = obs[obs.length - 1];
-      // A quarter is dated at its start and published ~2 months after its end,
-      // so anything older than ~9 months means the series has stopped updating.
-      if (last.date < daysAgo(270)) throw new Error(`FRED ${id}: stale, last quarter ${last.date}`);
-      const yearAgo = obs[obs.length - 5];
-      const growth = (last.value / yearAgo.value - 1) * 100;
-      return {
-        value: Math.round(growth * 100) / 100,
-        date: last.date,
-        source: `FRED (${id}, real GDP, YoY computed)`,
-      };
-    } catch (e) {
-      errors.push(e.message);
-    }
-  }
-  throw new Error(`No Swiss real GDP series worked: ${errors.join(' | ')}`);
 }
