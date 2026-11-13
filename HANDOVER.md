@@ -37,10 +37,12 @@ Also worth cleaning up: `data/manual_indicators.json` is unused and out of date;
 
 ## Plan: four steps, in order
 
-### Step 1: Fix the data layer (reliability first) — CODE DONE 2026-11-13, awaiting production check
+### Step 1: Fix the data layer (reliability first) — DONE, live in production 2026-11-13 (PRs #3, #4)
 Done: direct fetchers in `app/lib/sources/`, FSO Excel for CPI (SNB backup), SNB portal for policy rate, real GDP and unemployment, ECB for EUR/CHF and deposit rate, 90-day stance logic with tests, GDP converted from level to YoY %, `CRON_SECRET`, provenance columns + manual-vs-live rule, dead cron routes removed, `?dryRun=1`.
 Bugs found on the way: EUR/CHF was stored inverted (1.08 instead of 0.92, scoring +2 instead of −2); GDP would have been stored as a level (~180,000) instead of a growth %; the manual form posted to a `/api/cron/` route.
 Verified in a preview deployment: SNB rate, CPI, EUR/CHF, ECB, Fed. FRED's old Swiss GDP series was deleted, so GDP moved to SNB `gdprpq` (real). CPI moved to FSO because SNB lagged a month (showed Sep 0.99% while FSO had Oct 1.5%).
+Production: first real cron run wrote all 7 live indicators; verdict HOLD (+0.20). `CRON_SECRET` set (Production only); unauthenticated calls get 401. A one-time retry on network errors was added after the FSO server failed once on the first production call.
+Noted for Step 2: SARON lookup table probably overstates hike odds (99.665 → "HIKE 50bp").
 Still open: manual endpoint has no auth; no live source yet for real estate, SARON futures.
 
 Original plan:
