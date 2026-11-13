@@ -10,15 +10,24 @@ Make the dashboard (1) reliable, so the data shown is always correct and its fre
 
 **Working style:** the owner is new to coding. Work one step at a time, explain each change briefly, and verify each step before moving on.
 
-## Open input from the owner
+## Confirmed in production (2026-11-13)
 
-The output of `https://bns-dashboard-delta.vercel.app/api/cron/update-all` (the `results` object) was meant to be shared but never arrived. Ask for it first, because it confirms or rules out diagnosis 1 below.
+Calling `https://bns-dashboard-delta.vercel.app/api/cron/update-all` returns:
+
+```json
+{"message":"All data sources updated via master cron job","results":{
+  "swissData":{"error":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"},
+  "fredData":{"error":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"},
+  "exchangeData":{"error":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}}}
+```
+
+All three sub-jobs get an HTML page back instead of JSON. Despite the "updated" message, **no live data has been written**. This confirms diagnosis 1. Fix it first in Step 1.
 
 ## Diagnosis: why the live data is broken
 
 Found by reading the code; not yet verified against production.
 
-1. **The daily cron probably fails silently.** `app/api/cron/update-all/route.js` calls the other cron routes over HTTP at `https://${VERCEL_URL}`. That is the deployment-specific URL, and Deployment Protection usually blocks it. The errors are only logged, so the database row is never updated.
+1. **The daily cron fails silently (CONFIRMED).** `app/api/cron/update-all/route.js` calls the other cron routes over HTTP at `https://${VERCEL_URL}`. That is the deployment-specific URL, and Deployment Protection usually blocks it. The errors are only logged, so the database row is never updated.
 2. **The ECB/Fed stance is always neutral.** `ECBDFR` and `DFEDTARU` are daily series, but `determineCentralBankStance` in `app/lib/fred.js` takes the last 12 observations and compares index 0 with index 3. That is roughly 3 days apart, not 3 months, so the change is about 0 and the stance is `hold_neutral`. ECB plus Fed make up 20% of the model's weight.
 3. **"Live" is a label, not a fact.** Every reader route only reads the single DB row, and `"FRED (Live)"` is hard-coded. Stale data looks the same as fresh data.
 4. **The SNB rate source is questionable.** FRED `INTDSRCHM193N` is an old IMF monthly series and is probably stale. The SNB policy rate should come from the SNB data portal, or be manual.
