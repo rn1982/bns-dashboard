@@ -1,24 +1,8 @@
 import { NextResponse } from 'next/server';
 import { readRow, readIndicator } from '../../lib/db';
+import { scoreGdp, scoreUnemployment } from '../../lib/model'; // scoring rules live there
 
 export const dynamic = 'force-dynamic';
-
-function scoreGdp(g) {
-  if (g > 2.5) return 2;   // Above 2.5% YoY (overheating) - hike pressure
-  if (g > 2.0) return 1;   // 2.0% to 2.5% - strong growth
-  if (g >= 1.0) return 0;  // 1.0% to 2.0% (trend growth) - neutral
-  if (g >= 0.0) return -1; // 0% to 1.0% - weak growth
-  return -2;               // Negative growth (recession) - cut pressure
-}
-
-// Swiss-specific thresholds: Swiss unemployment is structurally low.
-function scoreUnemployment(u) {
-  if (u < 2.0) return 2;   // Below 2.0% (labour shortage) - hike pressure
-  if (u < 2.5) return 1;   // 2.0% to 2.5% - very low
-  if (u <= 3.5) return 0;  // 2.5% to 3.5% (normal for Switzerland)
-  if (u <= 4.5) return -1; // 3.5% to 4.5% - elevated
-  return -2;               // Above 4.5% (very high for CH) - cut pressure
-}
 
 export async function GET() {
   try {

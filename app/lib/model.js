@@ -22,6 +22,64 @@ export const LABELS = {
   fed: 'Fed policy',
 };
 
+// ---------- Per-indicator scoring: raw value -> score in [-2, +2] ----------
+// Used by the reader routes (today's value) and by the meeting replay (past values),
+// so both always apply exactly the same rules. Thresholds from the 2000–2025 backtest.
+
+export function scoreInflation(cpi) {
+  if (cpi > 2.5) return 2;   // overheating, strong hike pressure
+  if (cpi >= 1.8) return 1;  // above comfort zone: SNB acts preemptively
+  if (cpi >= 0.7) return 0;  // price stability zone
+  if (cpi >= 0.0) return -1; // low inflation
+  return -2;                 // deflation risk
+}
+
+export function scoreRealEstate(g) {
+  if (g > 6.0) return 2;
+  if (g > 4.0) return 1;
+  if (g >= 2.0) return 0;
+  if (g >= 0.0) return -1;
+  return -2;
+}
+
+// EUR/CHF = CHF per EUR. High = weak franc (imported inflation) = hike pressure.
+export function scoreExchangeRate(rate) {
+  if (rate > 1.00) return 2;
+  if (rate >= 0.98) return 1;
+  if (rate >= 0.96) return 0;
+  if (rate >= 0.94) return -1;
+  return -2;
+}
+
+export function scoreGdp(g) {
+  if (g > 2.5) return 2;
+  if (g > 2.0) return 1;
+  if (g >= 1.0) return 0;
+  if (g >= 0.0) return -1;
+  return -2;
+}
+
+// Swiss unemployment is structurally low, hence the narrow bands.
+export function scoreUnemployment(u) {
+  if (u < 2.0) return 2;
+  if (u < 2.5) return 1;
+  if (u <= 3.5) return 0;
+  if (u <= 4.5) return -1;
+  return -2;
+}
+
+// ECB / Fed stance (from app/lib/stance.js) -> score. Keep in sync with STANCES in indicators.js.
+export const STANCE_SCORE = {
+  hike_aggressive: 2,
+  hike_moderate: 1,
+  hold_hawkish_bias: 1,
+  hold_neutral: 0,
+  hold_dovish_bias: -1,
+  cut_moderate: -1,
+  cut_aggressive: -2,
+};
+export const scoreStance = stance => (stance in STANCE_SCORE ? STANCE_SCORE[stance] : null);
+
 // Global score → verdict. Thresholds from the same backtest.
 export const THRESHOLDS = { strong: 1.0, moderate: 0.35 };
 

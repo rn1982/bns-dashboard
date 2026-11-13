@@ -6,6 +6,7 @@ import ManualDataInput from './components/ManualDataInput';
 import { RANGES, rangeStart } from './components/HistoryChart';
 import { WEIGHTS, LABELS, computeForecast, isBacktestedWeights } from './lib/model';
 import WeightPanel from './components/WeightPanel';
+import MeetingReplay from './components/MeetingReplay';
 import { STANCE_LABELS } from './lib/indicators';
 
 const ROUTES = {
@@ -370,6 +371,14 @@ export default function HomePage() {
             />
           ))}
         </div>
+
+        <section className="mt-10">
+          <h2 className="text-lg font-bold">Past meetings: would the model have been right?</h2>
+          <p className="text-sm text-gray-600 mb-3">
+            The model re-run before each SNB decision since 2019, using only the data published by then. Click a meeting to see its inputs.
+          </p>
+          {!isLoading && <MeetingReplay weights={weights} isCustom={isCustom} />}
+        </section>
 
         <footer className="text-center mt-12 text-sm text-gray-500">
           <p>For informational purposes only. Badges: Live = fetched automatically and recent · Manual = typed in · Stale = older than expected for that series. Orange dots on a chart = manual entries.</p>

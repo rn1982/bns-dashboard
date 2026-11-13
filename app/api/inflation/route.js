@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { readRow, readIndicator } from '../../lib/db';
+import { scoreInflation } from '../../lib/model';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,12 +12,7 @@ export async function GET() {
 
     // OPTIMIZED SCORING LOGIC - Based on 2000-2025 Backtesting
     // SNB acts preemptively before inflation reaches 2.0%
-    let score = 0;
-    if (cpi > 2.5) score = 2;        // > 2.5%: Overheating, strong hike pressure
-    else if (cpi >= 1.8) score = 1;  // 1.8% to 2.5%: Above comfort zone, SNB preemptive action
-    else if (cpi >= 0.7) score = 0;  // 0.7% to 1.8%: Price stability target zone
-    else if (cpi >= 0.0) score = -1; // 0.0% to 0.7%: Low inflation
-    else score = -2;                 // < 0.0%: Deflationary risk, clear cut pressure
+    const score = scoreInflation(cpi); // rules in app/lib/model.js
 
     // Enhanced interpretation based on optimized thresholds
     let interpretation = "";

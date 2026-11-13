@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { readRow, readIndicator } from '../../lib/db';
+import { scoreExchangeRate } from '../../lib/model';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,12 +14,7 @@ export async function GET() {
     // Asymmetric response: SNB more aggressive against CHF strength than weakness
     // CHF fort (low EUR/CHF) = CUT pressure (competitiveness concerns)
     // CHF faible (high EUR/CHF) = HIKE pressure (inflation risk from imports)
-    let score = 0;
-    if (rate > 1.00) score = 2;       // > 1.00: CHF very weak, imported inflation risk
-    else if (rate >= 0.98) score = 1; // 0.98 to 1.00: CHF weak, moderate hike pressure
-    else if (rate >= 0.96) score = 0; // 0.96 to 0.98: Equilibrium zone (SNB comfort)
-    else if (rate >= 0.94) score = -1; // 0.94 to 0.96: CHF strong, export pressure
-    else score = -2;                   // < 0.94: CHF very strong, urgent intervention risk
+    const score = scoreExchangeRate(rate); // rules in app/lib/model.js
     
     // Enhanced interpretation with intervention risk assessment
     let interpretation = "";

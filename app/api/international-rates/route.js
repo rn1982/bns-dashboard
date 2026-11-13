@@ -1,20 +1,10 @@
 import { NextResponse } from 'next/server';
 import { readRow, readIndicator } from '../../lib/db';
 import { STANCE_LABELS } from '../../lib/indicators';
+import { STANCE_SCORE } from '../../lib/model'; // stance -> score lives there
 import { toDateString, ageInDays } from '../../lib/freshness';
 
 export const dynamic = 'force-dynamic';
-
-// Stance (from app/lib/stance.js) → score. Keep in sync with STANCES in app/lib/indicators.js.
-const STANCE_SCORE = {
-  hike_aggressive: 2,
-  hike_moderate: 1,
-  hold_hawkish_bias: 1,
-  hold_neutral: 0,
-  hold_dovish_bias: -1,
-  cut_moderate: -1,
-  cut_aggressive: -2,
-};
 
 function bank(row, key, stanceCol, name) {
   const { value, meta } = readIndicator(row, key);
