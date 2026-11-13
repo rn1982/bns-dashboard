@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import IndicatorCard, { FreshnessBadge, RevertButton, formatDate, formatDateTime } from './components/IndicatorCard';
 import ManualDataInput from './components/ManualDataInput';
+import { RANGES, rangeStart } from './components/HistoryChart';
 import { WEIGHTS, LABELS, computeForecast } from './lib/model';
+import { STANCE_LABELS } from './lib/indicators';
 
 const ROUTES = {
   inflation: '/api/inflation',
@@ -29,15 +31,16 @@ async function fetchJson(url) {
 
 const pct = v => `${v}%`;
 
-// Card order and how each card reads its data. Model keys match WEIGHTS.
+// Card order and how each card reads its data. Model keys match WEIGHTS;
+// `history` is the indicator key in app/lib/indicators.js (used by /api/history).
 const CARDS = [
-  { key: 'inflation', get: d => d.inflation, format: pct },
-  { key: 'realEstate', get: d => d.realEstate, format: v => `${v}% YoY` },
-  { key: 'exchangeRate', get: d => d.exchangeRate, format: v => v.toFixed(4) },
-  { key: 'ecb', get: d => d.internationalRates?.ecb, format: pct, subtitle: x => x?.stance },
-  { key: 'gdp', get: d => d.economicHealth?.gdp, format: pct },
-  { key: 'unemployment', get: d => d.economicHealth?.unemployment, format: pct },
-  { key: 'fed', get: d => d.internationalRates?.fed, format: pct, subtitle: x => x?.stance },
+  { key: 'inflation', history: 'inflation', get: d => d.inflation, format: pct },
+  { key: 'realEstate', history: 'real_estate', get: d => d.realEstate, format: v => `${v}% YoY` },
+  { key: 'exchangeRate', history: 'exchange_rate', get: d => d.exchangeRate, format: v => Number(v).toFixed(4) },
+  { key: 'ecb', history: 'ecb_rate', get: d => d.internationalRates?.ecb, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
+  { key: 'gdp', history: 'gdp', get: d => d.economicHealth?.gdp, format: pct },
+  { key: 'unemployment', history: 'unemployment', get: d => d.economicHealth?.unemployment, format: pct },
+  { key: 'fed', history: 'fed_rate', get: d => d.internationalRates?.fed, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
 ];
 
 const VERDICT_STYLE = {
@@ -78,6 +81,8 @@ export default function HomePage() {
   const [allData, setAllData] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [showManualInput, setShowManualInput] = useState(false);
+  const [range, setRange] = useState('5y');
+  const historyFrom = rangeStart(range);
 
   const loadAll = useCallback(async () => {
     setIsLoading(true);
@@ -266,9 +271,28 @@ export default function HomePage() {
         )}
 
         {/* Indicator cards; titles are built from WEIGHTS so they can't drift. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 className="text-lg font-bold">Indicators</h2>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-gray-500">History:</span>
+            <div className="inline-flex rounded-lg border border-gray-300 bg-white overflow-hidden" role="group" aria-label="History range">
+              {RANGES.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRange(r.id)}
+                  aria-pressed={range === r.id}
+                  className={`px-3 py-1 border-l first:border-l-0 border-gray-300 ${range === r.id ? 'bg-blue-600 text-white' : 'hover:bg-gray-50 text-gray-700'}`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {cards.map((c, i) => isLoading ? (
-            <div key={c.key} className="bg-white rounded-lg shadow p-5 h-44 animate-pulse" />
+            <div key={c.key} className="bg-white rounded-lg shadow p-5 h-72 animate-pulse" />
           ) : (
             <IndicatorCard
               key={c.key}
@@ -278,12 +302,14 @@ export default function HomePage() {
               format={c.format}
               subtitle={c.subtitle?.(c.data)}
               onRevert={revertToLive}
+              historyKey={c.history}
+              historyFrom={historyFrom}
             />
           ))}
         </div>
 
         <footer className="text-center mt-12 text-sm text-gray-500">
-          <p>For informational purposes only. Badges: Live = fetched automatically and recent · Manual = typed in · Stale = older than expected for that series.</p>
+          <p>For informational purposes only. Badges: Live = fetched automatically and recent · Manual = typed in · Stale = older than expected for that series. Orange dots on a chart = manual entries.</p>
         </footer>
       </div>
     </main>

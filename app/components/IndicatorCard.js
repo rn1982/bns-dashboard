@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import HistoryChart from './HistoryChart';
 
 // One indicator: value, score, and where the number comes from.
 // `data` is what the reader route returned: { value, score, meta, ... } or { error, meta }.
@@ -72,7 +73,7 @@ export function RevertButton({ onRevert }) {
   );
 }
 
-export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle, onRevert }) {
+export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle, onRevert, historyKey, historyFrom }) {
   const meta = data?.meta;
   const failed = !data || data.error;
   const status = failed ? (meta?.status === 'missing' ? 'missing' : 'error') : meta?.status;
@@ -103,6 +104,12 @@ export default function IndicatorCard({ title, weight, data, format = v => Strin
           <p className={`text-sm font-semibold mt-2 ${style.text}`}>
             Score: {data.score > 0 ? `+${data.score}` : data.score} <span className="font-normal">({style.label})</span>
           </p>
+        </div>
+      )}
+
+      {historyKey && (
+        <div className="mt-3">
+          <HistoryChart indicator={historyKey} from={historyFrom} format={format} />
         </div>
       )}
 
