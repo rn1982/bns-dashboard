@@ -63,11 +63,12 @@ Original plan:
 - Show the verdict even if one indicator fails: mark it as partial and list the missing indicators. Today a single error hides the whole verdict.
 - **Done when:** a user can see at a glance which numbers are trustworthy, and can fix any of them by hand.
 
-### Step 3: Add history — CODE DONE 2026-11-13, awaiting preview check
+### Step 3: Add history — DONE and verified on the preview 2026-11-13
 Done: `indicator_history` table (`app/lib/history.js`, created by `ensureSchema`); every source is now a series fetcher (`from` → all points), so the daily cron writes the current value AND upserts its recent window into history (revisions are picked up, re-runs write nothing); manual saves add a `manual` point, "revert to live" deletes it; `/api/cron/backfill` (one-off, `CRON_SECRET`) loads everything since 2000; `/api/history?indicator=…` serves the series (manual wins on the same date; `freq=monthly` for long daily series). Tests: `app/lib/sources/snb.test.mjs`; SQL checked against a local Postgres 16 (not in `npm test`).
 Deviation from the plan: `latest_indicators` was NOT turned into a view over the history. It keeps the manual-vs-live rule, stances and the cron report; changing it brings risk and no visible gain. Revisit only if the two ever disagree.
 Backfill sources: the live sources themselves (SNB, FSO, ECB, FRED), not only FRED.
-To check on the preview: run the backfill once (see below), then `/api/history?indicator=inflation` etc. return points. Risk to watch: the array parameters (`unnest($4::date[], …)`) were tested with `pg`, not with the Neon driver behind `@vercel/postgres`.
+Verified on the preview (Neon driver included): backfill wrote 25,914 points (all 7 live indicators, Fed from 2008-12, SNB rate from 2019-06); a re-run wrote 0; `/api/history?indicator=inflation` returns the FSO series up to Oct 2026 (1.5%).
+Found while checking: `/api/cron/*` answered without an `Authorization` header, so `CRON_SECRET` is not set for the Preview environment (check Production too).
 Gaps: SNB policy rate history starts 2019-06 (3M Libor target before that: not loaded); no stance history (can be recomputed from the rate series in Step 4); real estate / SARON only from manual entries.
 
 Original plan:
