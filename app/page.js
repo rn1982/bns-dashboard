@@ -95,8 +95,12 @@ export default function HomePage() {
   const stale = cards.filter(c => c.data && !c.data.error && c.data.meta?.status === 'stale').map(c => c.key);
   const nextMeeting = allData.internationalRates?.nextMeeting;
   const market = allData.marketExpectations;
+  // An old futures price says nothing about today's market: don't compare with it.
+  const marketStale = market?.saronMeta?.status === 'stale';
   const comparison = forecast?.verdict && market && !market.error
-    ? (forecast.verdict.direction === market.direction
+    ? marketStale
+      ? { message: 'Not compared: the SARON futures price is out of date. Enter a fresh one.', color: 'text-amber-800' }
+      : (forecast.verdict.direction === market.direction
       ? { message: 'Model and market agree', color: 'text-green-700' }
       : { message: 'Model and market disagree', color: 'text-red-700' })
     : null;
@@ -208,7 +212,12 @@ export default function HomePage() {
                     <h2 className="text-sm font-bold uppercase tracking-wider text-blue-900 flex items-center gap-2">
                       Market expectations (SARON futures) <FreshnessBadge meta={market.saronMeta} />
                     </h2>
-                    <p className="text-xl font-bold mt-1 text-blue-800">{market.expectationText}</p>
+                    <p className={`text-xl font-bold mt-1 text-blue-800 ${marketStale ? 'opacity-50' : ''}`}>{market.expectationText}</p>
+                    {marketStale && (
+                      <p className="text-sm text-amber-800 mt-1">
+                        Based on a futures price from {market.saronMeta.observedAt ? formatDate(market.saronMeta.observedAt) : 'an unknown date'}. Ignore until updated.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-x-4 mt-3 text-sm text-blue-800">
                       <p><span className="font-semibold">Probability:</span> {market.probability}%</p>
                       <p><span className="font-semibold">Signal:</span> {market.signalStrength}</p>
