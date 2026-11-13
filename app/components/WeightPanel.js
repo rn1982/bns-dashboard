@@ -21,9 +21,69 @@ function ContributionBar({ value }) {
   );
 }
 
+// The global score on a −2…+2 scale, split into the five verdict zones.
+const pos = v => `${((Math.max(-2, Math.min(2, v)) + 2) / 4) * 100}%`;
+export function ScoreGauge({ score, baseline }) {
+  const { strong, moderate } = THRESHOLDS;
+  const zones = [
+    { from: -2, to: -strong, label: 'Strong CUT', cls: 'bg-green-300' },
+    { from: -strong, to: -moderate, label: 'CUT', cls: 'bg-green-100' },
+    { from: -moderate, to: moderate, label: 'HOLD', cls: 'bg-gray-100' },
+    { from: moderate, to: strong, label: 'HIKE', cls: 'bg-red-100' },
+    { from: strong, to: 2, label: 'Strong HIKE', cls: 'bg-red-300' },
+  ];
+  const ticks = [-strong, -moderate, moderate, strong];
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-200">
+      <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
+        <span>Total score → verdict</span>
+        {score !== null && <span className="tabular-nums">{score > 0 ? '+' : ''}{score.toFixed(2)}</span>}
+      </div>
+      <div className="relative pt-5">
+        {score !== null && (
+          <div className="absolute top-0 -translate-x-1/2 flex flex-col items-center" style={{ left: pos(score) }}>
+            <span className="text-[10px] font-bold leading-none">▼</span>
+          </div>
+        )}
+        {baseline !== null && baseline !== undefined && (
+          <div
+            className="absolute top-0 -translate-x-1/2 text-[10px] leading-none text-gray-500"
+            style={{ left: pos(baseline) }}
+            title={`Backtested weights: ${baseline.toFixed(2)}`}
+          >
+            ▽
+          </div>
+        )}
+        <div className="relative h-6 flex rounded overflow-hidden border border-gray-200">
+          {zones.map(z => (
+            <div
+              key={z.label}
+              className={`${z.cls} h-full flex items-center justify-center text-[10px] sm:text-xs font-medium text-gray-700 overflow-hidden whitespace-nowrap`}
+              style={{ width: `${((z.to - z.from) / 4) * 100}%` }}
+            >
+              {z.label}
+            </div>
+          ))}
+          {score !== null && <div className="absolute inset-y-0 w-0.5 bg-gray-900" style={{ left: pos(score) }} />}
+        </div>
+        <div className="relative h-4 text-[10px] text-gray-500 tabular-nums">
+          {[-2, ...ticks, 2].map(t => (
+            <span key={t} className="absolute -translate-x-1/2 first:translate-x-0 last:-translate-x-full" style={{ left: pos(t) }}>
+              {t > 0 ? '+' : ''}{t}
+            </span>
+          ))}
+        </div>
+      </div>
+      {baseline !== null && baseline !== undefined && (
+        <p className="text-xs text-gray-500 mt-1">▼ your weights · ▽ backtested weights</p>
+      )}
+    </div>
+  );
+}
+
 // The contribution bars are always shown; the sliders only after "Adjust weights"
 // (or when custom weights are active, so they can't be forgotten).
-export default function WeightPanel({ weights, onChange, onReset, forecast, isCustom }) {
+export default function WeightPanel({ weights, onChange, onReset, forecast, isCustom, baselineScore = null }) {
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const [open, setOpen] = useState(false);
   const editing = open || isCustom;
@@ -106,6 +166,7 @@ export default function WeightPanel({ weights, onChange, onReset, forecast, isCu
           );
         })}
       </div>
+      <ScoreGauge score={forecast?.score ?? null} baseline={isCustom ? baselineScore : null} />
       {total === 0 && <p className="mt-2 text-sm text-red-700">All weights are 0: no forecast. Move a slider or reset.</p>}
     </section>
   );

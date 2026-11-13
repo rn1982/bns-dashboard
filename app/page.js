@@ -261,6 +261,7 @@ export default function HomePage() {
             onReset={() => saveWeights(DEFAULT_POINTS)}
             forecast={forecast}
             isCustom={isCustom}
+            baselineScore={baseline?.score ?? null}
           />
         )}
 
