@@ -31,7 +31,7 @@ export default function ManualDataInput({ onUpdate }) {
         throw new Error('Veuillez remplir au moins un champ');
       }
 
-      const response = await fetch('/api/cron/manual-data-update', {
+      const response = await fetch('/api/manual-data-update', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
