@@ -1,6 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { INDICATORS } from './indicators.js';
 import { freshness, toDateString } from './freshness.js';
+import { HISTORY_DDL, appendHistory } from './history.js';
 
 let schemaReady = false;
 
@@ -23,6 +24,7 @@ export async function ensureSchema() {
   cols.push('ADD COLUMN IF NOT EXISTS next_meeting_date TEXT');
   cols.push('ADD COLUMN IF NOT EXISTS next_meeting_updated_at TIMESTAMPTZ');
   await sql.query(`ALTER TABLE latest_indicators ${cols.join(', ')}`);
+  await sql.query(HISTORY_DDL);
   schemaReady = true;
 }
 
@@ -69,13 +71,17 @@ export async function writeLive(key, { value, date, source, extra }, { force = f
   return res.rowCount > 0 ? 'updated' : 'kept_manual';
 }
 
-/** Write a value typed in by a user. Always wins. */
-export async function writeManual(key, { value, date, extra }) {
+/**
+ * Write a value typed in by a user. Always wins.
+ * recordHistory: false when only a stance changed (the rate itself was not re-entered).
+ */
+export async function writeManual(key, { value, date, extra }, { recordHistory = true } = {}) {
   const ind = INDICATORS[key];
   if (!ind) throw new Error(`Unknown indicator ${key}`);
   const { sets, params } = buildSet(ind, { value, date, source: 'Manual entry', origin: 'manual', extra });
   const res = await sql.query(`UPDATE latest_indicators SET ${sets.join(', ')} WHERE id = 1`, params);
   if (res.rowCount === 0) throw new Error('latest_indicators has no row with id = 1');
+  if (recordHistory) await appendHistory(key, [{ date, value }], { origin: 'manual', source: 'Manual entry' });
 }
 
 /** Next SNB meeting date ('YYYY-MM-DD'). Manual only. */

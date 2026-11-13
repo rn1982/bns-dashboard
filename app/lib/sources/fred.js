@@ -1,6 +1,6 @@
 // FRED (St. Louis Fed): needs FRED_API_KEY. https://fred.stlouisfed.org/docs/api/
-import { fetchJson, daysAgo } from './http';
-import { stanceFromSeries } from '../stance';
+// DFEDTARU starts 2008-12-16 (before that the Fed had a single target, not a range).
+import { fetchJson } from './http';
 
 export const FRED_SERIES = {
   FED_RATE: 'DFEDTARU', // Fed funds target range, upper limit (daily)
@@ -21,16 +21,8 @@ async function fetchFredObservations(seriesId, observationStart) {
   return obs; // ascending by date
 }
 
-/** Fed funds upper target + stance from its change over the last 90 days. */
-export async function fetchFedRate() {
-  const obs = await fetchFredObservations(FRED_SERIES.FED_RATE, daysAgo(130));
-  const last = obs[obs.length - 1];
-  const s = stanceFromSeries(obs);
-  return {
-    value: last.value,
-    date: last.date,
-    source: `FRED (${FRED_SERIES.FED_RATE})`,
-    stance: s.stance,
-    stanceDetail: `${s.from.value}% on ${s.from.date} → ${s.to.value}% on ${s.to.date}`,
-  };
+/** Fed funds target range, upper limit (daily). The stance is computed by the caller (jobs.js). */
+export async function fedRateSeries(from) {
+  const points = await fetchFredObservations(FRED_SERIES.FED_RATE, from);
+  return { points, source: `FRED (${FRED_SERIES.FED_RATE})` };
 }

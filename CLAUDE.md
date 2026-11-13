@@ -12,10 +12,10 @@ SNB (Swiss National Bank) monetary-policy dashboard: a Next.js 15 App Router app
 npm run dev     # local dev server on http://localhost:3000
 npm run build   # production build
 npm run lint    # next lint (ESLint 9, eslint-config-next)
-npm test        # node --test on app/**/*.test.mjs (stance, freshness, model)
+npm test        # node --test on app/**/*.test.mjs (stance, freshness, model, SNB quarter maths)
 ```
 
-Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dryRun=1`. In the cloud sandbox, start the dev server with `NODE_USE_ENV_PROXY=1` or Node's fetch can't reach the internet.
+Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dryRun=1` (or `/api/cron/backfill?dryRun=1` for the full history). In the cloud sandbox, start the dev server with `NODE_USE_ENV_PROXY=1` or Node's fetch can't reach the internet.
 
 ## Environment
 
@@ -29,18 +29,19 @@ Dry-run the data fetchers without touching the DB: `GET /api/cron/update-all?dry
 
 **Data flow is two-stage, and the database sits in the middle:**
 
-1. **Writer: cron.** `vercel.json` schedules `/api/cron/update-all` (daily 08:00 UTC). It runs the fetchers listed in `JOBS` (`app/lib/jobs.js`, which imports `app/lib/sources/`) directly (no HTTP self-calls) and writes each indicator via `writeLive` in `app/lib/db.js`. Live sources:
+1. **Writer: cron.** `vercel.json` schedules `/api/cron/update-all` (daily 08:00 UTC). It runs the jobs listed in `JOBS` (`app/lib/jobs.js`, which imports `app/lib/sources/`) directly (no HTTP self-calls). Each source function returns a **series** `{ points: [{ date, value }], source }` from a `from` date; `runJob` fetches the last `windowDays`, writes the last point via `writeLive` in `app/lib/db.js` and upserts the whole window into `indicator_history` (catches revisions). ECB/Fed stances are computed in `runJob` from the same series. Live sources:
    - CPI YoY: FSO Excel `cc-d-05.02.08` (found through the FSO DAM API, column `% m-12`), with SNB `plkopr/VVP` as backup; the newer month wins. SNB lags FSO by ~3 weeks.
    - SNB data portal: policy rate `snbgwdzid/LZ`, real GDP `gdprpq/WMF,BBIPS` (turned into YoY %; `gdpap` is NOMINAL, don't use it), jobless rate SA `amarbma/S1`.
    - ECB data API: EUR/CHF reference rate (CHF per EUR, do not invert), deposit facility rate + stance.
    - FRED: Fed upper target `DFEDTARU` + stance.
    Real estate, SARON futures and next meeting date have no live source: manual only.
+   `/api/cron/backfill[?from=2000-01-01][&indicator=…][&dryRun=1]` (same `CRON_SECRET` auth, not scheduled) runs the same series fetchers from 2000 and fills `indicator_history` only; safe to re-run.
    `read-excel-file` is listed in `serverExternalPackages` in `next.config.mjs` (its unzip dependency can't be bundled). The route returns a per-indicator report (`updated` / `kept_manual` / `failed`), HTTP 500 if anything failed, and stores it in `last_cron_report`.
-2. **Manual writer:** `POST /api/manual-data-update` (used by `app/components/ManualDataInput.js`) validates ranges from `app/lib/indicators.js` and writes via `writeManual`. Fields: the 7 numbers, `ecbRate`/`fedRate` + `ecbStance`/`fedStance`, `saronFutures`, `nextMeeting`, optional `observedAt` (YYYY-MM-DD, default today), and `revert: [key]`, which runs that indicator's live job with `force` to drop a manual value.
+2. **Manual writer:** `POST /api/manual-data-update` (used by `app/components/ManualDataInput.js`) validates ranges from `app/lib/indicators.js` and writes via `writeManual` (which also adds an `origin = 'manual'` point to `indicator_history`, except for stance-only edits). Fields: the 7 numbers, `ecbRate`/`fedRate` + `ecbStance`/`fedStance`, `saronFutures`, `nextMeeting`, optional `observedAt` (YYYY-MM-DD, default today), and `revert: [key]`, which runs that indicator's live job with `force` to drop a manual value and deletes the manual history point.
    **Manual vs live rule:** each indicator has `<prefix>_observed_at`, `<prefix>_origin` (`live`|`manual`) and `<prefix>_source` columns (added on the fly by `ensureSchema`). The cron overwrites a manual value only when its observation date is later than the manual one.
-3. **Readers: indicator routes** (`/api/inflation`, `/api/real-estate`, `/api/exchange-rate`, `/api/economic-health`, `/api/international-rates`, `/api/market-expectations`) read the row with `readRow()` and turn raw values into a `score` in [-2, +2]. Each indicator comes with `meta` from `readIndicator()`: stored source, observation date, origin and a freshness `status` (`live` | `manual` | `stale` | `missing`, see `app/lib/freshness.js`; stale = observation older than `maxAgeDays` in `app/lib/indicators.js`). A null value returns `{ error, meta }` instead of a score. They never call external APIs. `/api/status` returns the last cron run and its failures.
+3. **Readers: indicator routes** (`/api/inflation`, `/api/real-estate`, `/api/exchange-rate`, `/api/economic-health`, `/api/international-rates`, `/api/market-expectations`) read the row with `readRow()` and turn raw values into a `score` in [-2, +2]. Each indicator comes with `meta` from `readIndicator()`: stored source, observation date, origin and a freshness `status` (`live` | `manual` | `stale` | `missing`, see `app/lib/freshness.js`; stale = observation older than `maxAgeDays` in `app/lib/indicators.js`). A null value returns `{ error, meta }` instead of a score. They never call external APIs. `/api/status` returns the last cron run and its failures. `/api/history?indicator=<key>[&from][&to][&freq=raw|monthly]` returns the time series for charts (monthly = last observation per month, the default for ranges over 2 years).
 
-The single source of truth is the one-row table `latest_indicators` (id = 1). No schema or migration file is in the repo. Column names per indicator are listed in `app/lib/indicators.js`; `ensureSchema()` adds missing provenance columns with `ADD COLUMN IF NOT EXISTS`. `app/api/debug/database/route.js` dumps the table.
+The **current** values live in the one-row table `latest_indicators` (id = 1). The **time series** live in `indicator_history` (`app/lib/history.js`; PK `(indicator, observed_at, origin)`, created by `ensureSchema`). When a date has both a manual and a live point, `readHistory` shows the manual one (same rule as `writeLive`). History starts: SNB policy rate 2019-06 (introduced then), Fed range 2008-12, the rest 2000; real estate and SARON futures only from manual entries. No schema or migration file is in the repo. Column names per indicator are listed in `app/lib/indicators.js`; `ensureSchema()` adds missing provenance columns with `ADD COLUMN IF NOT EXISTS`. `app/api/debug/database/route.js` dumps the table.
 
 **Stance (`app/lib/stance.js`):** `stanceFromSeries` compares the latest rate with the rate on or before latest date − 90 days and returns one of seven stance strings (`hike_aggressive` … `cut_aggressive`, listed in `app/lib/indicators.js`). `/api/international-rates` maps each stance to a score. If you change the vocabulary, update both places.
 

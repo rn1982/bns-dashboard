@@ -14,6 +14,8 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { ensureSchema, writeManual, writeNextMeeting, readRow } from '../../lib/db';
+import { deleteHistoryPoint } from '../../lib/history';
+import { toDateString } from '../../lib/freshness';
 import { INDICATORS, STANCES } from '../../lib/indicators';
 import { runJob, JOBS } from '../../lib/jobs';
 
@@ -108,7 +110,7 @@ export async function POST(request) {
           if (stored === null || stored === undefined) {
             return NextResponse.json({ success: false, error: `Enter ${rateField} too: no rate is stored yet` }, { status: 400 });
           }
-          u = { field: f, value: Number(stored) };
+          u = { field: f, value: Number(stored), stanceOnly: true };
           updates.set(key, u);
         }
         u.extra = { ...(u.extra || {}), [col]: body[f] };
@@ -120,14 +122,21 @@ export async function POST(request) {
     }
 
     for (const [key, u] of updates) {
-      await writeManual(key, { value: u.value, date: observedAt, extra: u.extra });
+      await writeManual(key, { value: u.value, date: observedAt, extra: u.extra }, { recordHistory: !u.stanceOnly });
     }
     if (!isBlank(body.nextMeeting)) await writeNextMeeting(body.nextMeeting);
 
     const reverted = {};
+    const rowBeforeRevert = revert.length ? await readRow() : null;
     for (const key of revert) {
       try {
         const r = await runJob(key, { force: true });
+        // The user dropped their manual value: remove it from the chart history too.
+        const prefix = INDICATORS[key].prefix;
+        const manualDate = toDateString(rowBeforeRevert[`${prefix}_observed_at`]);
+        if (rowBeforeRevert[`${prefix}_origin`] === 'manual' && manualDate) {
+          await deleteHistoryPoint(key, manualDate, 'manual');
+        }
         reverted[key] = { status: 'updated', value: r.value, observedAt: r.observedAt };
       } catch (e) {
         // The manual value stays in place if the live source is down.

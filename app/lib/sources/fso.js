@@ -18,7 +18,8 @@ function findAssets(o, out = []) {
   return out;
 }
 
-export async function fetchFsoCpiYoY() {
+/** Monthly CPI YoY % from the FSO Excel (whole history, filtered to >= from). */
+export async function fsoCpiSeries(from) {
   const meta = await fetchJson(`${DAM}?orderNr=${CPI_ORDER_NR}`, { label: 'FSO DAM search' });
   const current = findAssets(meta).find(a => a.bfs.lifecycleGroup === 'CURRENT');
   const master = current?.links.find(l => l.rel === 'master' && l.format === 'xlsx');
@@ -33,13 +34,11 @@ export async function fetchFsoCpiYoY() {
   if (!header) throw new Error('FSO CPI Excel: column "% m-12" not found (file layout changed?)');
   const col = header.indexOf('% m-12');
 
-  const data = rows.filter(r => r[0] instanceof Date && typeof r[col] === 'number');
-  const last = data[data.length - 1];
-  if (!last) throw new Error('FSO CPI Excel: no monthly values found');
-
-  return {
-    value: last[col],
-    date: last[0].toISOString().slice(0, 10),
-    source: `FSO CPI (${CPI_ORDER_NR}, YoY)`,
-  };
+  const points = rows
+    .filter(r => r[0] instanceof Date && typeof r[col] === 'number')
+    .map(r => ({ date: r[0].toISOString().slice(0, 10), value: r[col] }))
+    .filter(p => p.date >= from)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (!points.length) throw new Error(`FSO CPI Excel: no monthly values since ${from}`);
+  return { points, source: `FSO CPI (${CPI_ORDER_NR}, YoY)` };
 }
