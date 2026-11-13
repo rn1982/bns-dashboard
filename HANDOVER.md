@@ -77,7 +77,10 @@ Original plan:
 - Add a `/api/history?indicator=...` route.
 - **Done when:** each indicator has a time series the UI can chart.
 
-### Step 4: Modern, interactive UI
+### Step 4: Modern, interactive UI — IN PROGRESS
+Done 2026-11-13: history chart on each indicator card (`app/components/HistoryChart.js`, reads `/api/history`; manual points in orange) with a 1Y / 5Y / 10Y / Since 2000 range selector above the cards; readable stance labels; unused `MiniChart.js` removed.
+Next, in order: weight sliders with live verdict + reset; SNB rate / market history; replay of past meetings (needs per-indicator scoring moved into `app/lib/model.js` first); visual refresh and dark mode.
+
 - `app/lib/model.js` exists (weights, thresholds, verdict, tests) since Step 2. Still to move there: the per-indicator scoring that lives in each reader route.
 - Add weight sliders that recompute the verdict live (with "reset to backtested weights"), history charts on each card, model-vs-market over time, and a selector to replay past SNB meeting dates.
 - Update the visual design (clean layout, dark mode, works on mobile). Keep the information density.
