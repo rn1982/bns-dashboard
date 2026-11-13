@@ -137,9 +137,21 @@ export default function ManualDataInput({ current = {}, nextMeeting, authRequire
       )}
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2 p-3 bg-gray-50 rounded border border-gray-200">
+          <label className="block md:w-1/2">
+            <span className="block text-sm font-medium mb-1">📅 Next SNB meeting date</span>
+            <input type="date" value={form.nextMeeting} min={today()} onChange={set('nextMeeting')} className={input} />
+            <span className="flex items-center gap-1.5 text-xs text-gray-500 mt-1">
+              Now: <strong className="text-gray-700">{nextMeeting?.date ? formatDate(nextMeeting.date) : '—'}</strong>
+              {nextMeeting && <FreshnessBadge meta={{ reason: nextMeeting.reason }} status={nextMeeting.status} />}
+              <span>· can be saved on its own</span>
+            </span>
+          </label>
+        </div>
+
         <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 border-b border-gray-100">
           <label className="block">
-            <span className="block text-sm font-medium mb-1">The values below are for (observation date)</span>
+            <span className="block text-sm font-medium mb-1">Period the numbers below refer to (not the meeting date)</span>
             <input type="date" value={observedAt} max={today()} onChange={e => setObservedAt(e.target.value)} className={input} required />
             <span className="block text-xs text-gray-500 mt-1">
               Applies to every value you type below in this save (e.g. 2026-07-01 for a Q3 figure). To re-date a stored value, type the value again.
@@ -190,15 +202,6 @@ export default function ManualDataInput({ current = {}, nextMeeting, authRequire
             <a href="https://www.eurex.com" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">eurex.com</a> → search FSR3.
           </span>
           <Current current={current.saronFutures} />
-        </label>
-
-        <label className="block">
-          <span className="block text-sm font-medium mb-1">Next SNB meeting</span>
-          <input type="date" value={form.nextMeeting} onChange={set('nextMeeting')} className={input} />
-          <span className="flex items-center gap-1.5 text-xs text-gray-500 mt-1">
-            Now: <strong className="text-gray-700">{nextMeeting?.date ? formatDate(nextMeeting.date) : '—'}</strong>
-            {nextMeeting && <FreshnessBadge meta={{ reason: nextMeeting.reason }} status={nextMeeting.status} />}
-          </span>
         </label>
 
         <div className="md:col-span-2 flex items-center gap-4 pt-2">
