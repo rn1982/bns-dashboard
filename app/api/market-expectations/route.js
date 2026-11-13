@@ -1,7 +1,7 @@
-// UPDATED: app/api/market-expectations/route.js
-
-import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
+import { readRow, readIndicator } from '../../lib/db';
+
+export const dynamic = 'force-dynamic';
 
 // Professional SARON futures interpretation function
 function interpretSARONFutures(currentSNBRate, futuresPrice) {
@@ -114,19 +114,23 @@ function interpretSARONFutures(currentSNBRate, futuresPrice) {
 
 export async function GET() {
   try {
-    // Get market data from database
-    const { rows } = await sql`
-      SELECT market_implied_rate, saron_futures_price, market_probability, snb_policy_rate_value
-      FROM latest_indicators WHERE id = 1;
-    `;
-    if (rows.length === 0) throw new Error("No market data found in database.");
-    
-    const futuresPrice = rows[0].saron_futures_price;
-    const currentSNBRate = rows[0].snb_policy_rate_value;
-    
-    // Use professional SARON interpretation
+    const row = await readRow();
+    const saron = readIndicator(row, 'saron_futures');
+    const snb = readIndicator(row, 'snb_rate');
+    const futuresPrice = saron.value;
+    const currentSNBRate = snb.value;
+    if (futuresPrice === null || currentSNBRate === null) {
+      return NextResponse.json({
+        error: futuresPrice === null ? 'No SARON futures price stored yet (manual only)' : 'No SNB policy rate stored yet',
+        currentSNBRate,
+        futuresPrice,
+        saronMeta: saron.meta,
+        snbMeta: snb.meta,
+      });
+    }
+
     const marketAnalysis = interpretSARONFutures(currentSNBRate, futuresPrice);
-    
+
     const responseData = {
       currentSNBRate: currentSNBRate,
       futuresPrice: futuresPrice,
@@ -137,8 +141,8 @@ export async function GET() {
       signalStrength: marketAnalysis.signalStrength,
       moveSize: marketAnalysis.moveSize,
       direction: marketAnalysis.direction,
-      source: "SARON 3M Futures",
-      nextPublication: "Real-time",
+      saronMeta: saron.meta,
+      snbMeta: snb.meta,
       description: "Professional market-implied SNB rate expectations",
       methodology: "Based on institutional SARON futures interpretation"
     };

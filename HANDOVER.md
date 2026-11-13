@@ -51,7 +51,12 @@ Original plan:
 - For every indicator, store: value, observation date, fetched-at time, and **origin** (`live` | `manual`) plus the source name.
 - **Done when:** running the cron updates every live field; the stance changes when the rate history changes; the cron's JSON lists any failures.
 
-### Step 2: Make correctness visible, and keep manual override first-class
+### Step 2: Make correctness visible, and keep manual override first-class — CODE DONE 2026-11-13, awaiting preview check
+Done: `maxAgeDays` per indicator in `app/lib/indicators.js`; `app/lib/freshness.js` (Live / Manual / Stale / Missing, age measured from the observation date); every reader route returns `meta` (real source, observation date, badge) through `readRow` / `readIndicator` in `app/lib/db.js`; `app/lib/model.js` holds WEIGHTS, thresholds and `computeForecast` (partial verdict: missing indicators are dropped and the other weights scaled up; no verdict under 50% coverage); `/api/status` returns the last cron run for the banner; the manual form shows current values with badges and adds ECB/Fed rate + stance, next meeting, observation date and "revert to live" (`revert: [key]` runs the live fetcher with `force`); optional `MANUAL_UPDATE_SECRET` protects the manual endpoint (header `x-admin-key`). Tests: `app/lib/model.test.mjs`.
+Removed fake data: default ECB 2.0% / Fed 4.5% / `hold_neutral` stance, hard-coded CPI history, null values scored as 0.
+To check on the preview: badges look right with real DB data; a manual save, then "revert to live"; set `MANUAL_UPDATE_SECRET` in Vercel.
+
+Original plan:
 - On each card, show the source, the observation date and a badge: **Live** / **Manual** / **Stale** (older than an expected age set per indicator, e.g. CPI 45 days, FX 3 days).
 - Rule: a manual value is kept until a newer live observation arrives, or until the user clears it. The cron must never silently overwrite a newer manual entry.
 - Keep `ManualDataInput` and add the missing fields (ECB/Fed stance, next meeting date). Validate ranges on the server.
@@ -65,7 +70,7 @@ Original plan:
 - **Done when:** each indicator has a time series the UI can chart.
 
 ### Step 4: Modern, interactive UI
-- Move the scoring (`WEIGHTS`, thresholds, per-indicator scoring) into one pure module, `app/lib/model.js`, used by both server and client. Add a small unit test for it, which is the first test in the repo.
+- `app/lib/model.js` exists (weights, thresholds, verdict, tests) since Step 2. Still to move there: the per-indicator scoring that lives in each reader route.
 - Add weight sliders that recompute the verdict live (with "reset to backtested weights"), history charts on each card, model-vs-market over time, and a selector to replay past SNB meeting dates.
 - Update the visual design (clean layout, dark mode, works on mobile). Keep the information density.
 - Optional: migrate `@vercel/postgres` to `@neondatabase/serverless`.
@@ -75,4 +80,5 @@ Original plan:
 - Production: `https://bns-dashboard-delta.vercel.app/` (Vercel; daily cron at 08:00 UTC, see `vercel.json`).
 - Environment variables: `POSTGRES_URL`, `FRED_API_KEY`, `ALPHA_VANTAGE_API_KEY`, plus `CRON_SECRET` from step 1.
 - The cloud sessions here have no production keys or DB access. Verifying against production needs either the owner pasting outputs, or keys added through the environment's credentials.
-- Development branch: `claude/ecstatic-dirac-fff2m0`.
+- Development branch: `claude/confident-wright-rlj4rp` (Step 2).
+- Optional env var `MANUAL_UPDATE_SECRET`: when set, the manual form needs that admin key.

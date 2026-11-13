@@ -3,67 +3,11 @@
 // source and origin. Returns a per-indicator report; HTTP 500 if anything failed.
 import { NextResponse } from 'next/server';
 import { checkCronAuth } from '../../../lib/cronAuth';
-import { ensureSchema, writeLive, saveCronReport } from '../../../lib/db';
-import {
-  fetchSnbPolicyRate,
-  fetchSwissCpiYoY,
-  fetchSwissRealGdpYoY,
-  fetchSwissUnemployment,
-} from '../../../lib/sources/snb';
-import { fetchFsoCpiYoY } from '../../../lib/sources/fso';
-import { fetchEurChf, fetchEcbDepositRate } from '../../../lib/sources/ecb';
-import { fetchFedRate } from '../../../lib/sources/fred';
+import { ensureSchema, saveCronReport } from '../../../lib/db';
+import { JOBS, runJob } from '../../../lib/jobs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-// Try several sources for the same indicator and keep the most recent observation
-// (first source wins a tie). Fails only if every source fails.
-function latestOf(...fetchers) {
-  return async () => {
-    const settled = await Promise.allSettled(fetchers.map(f => f()));
-    const ok = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
-    if (!ok.length) throw new Error(settled.map(s => s.reason?.message).join(' | '));
-    const best = ok.reduce((a, b) => (b.date > a.date ? b : a));
-    const failed = settled.filter(s => s.status === 'rejected').map(s => s.reason?.message);
-    return failed.length ? { ...best, warnings: failed } : best;
-  };
-}
-
-// indicator key -> fetcher. Real estate and SARON futures have no verified live
-// source yet: they stay manual.
-const JOBS = {
-  snb_rate: fetchSnbPolicyRate,
-  inflation: latestOf(fetchFsoCpiYoY, fetchSwissCpiYoY), // FSO is ~3 weeks ahead of SNB
-  exchange_rate: fetchEurChf,
-  ecb_rate: fetchEcbDepositRate,
-  fed_rate: fetchFedRate,
-  gdp: fetchSwissRealGdpYoY,
-  unemployment: fetchSwissUnemployment,
-};
-
-const EXTRA = {
-  ecb_rate: r => ({ ecb_stance: r.stance }),
-  fed_rate: r => ({ fed_stance: r.stance }),
-};
-
-async function runJob(key, fetcher, dryRun) {
-  const r = await fetcher();
-  const status = dryRun ? 'dry_run' : await writeLive(key, {
-    value: r.value,
-    date: r.date,
-    source: r.source,
-    extra: EXTRA[key]?.(r),
-  });
-  return {
-    status, // 'updated' | 'kept_manual' | 'dry_run'
-    value: r.value,
-    observedAt: r.date,
-    source: r.source,
-    ...(r.stance && { stance: r.stance, stanceDetail: r.stanceDetail }),
-    ...(r.warnings && { warnings: r.warnings }),
-  };
-}
 
 export async function GET(request) {
   const authError = checkCronAuth(request);
@@ -81,7 +25,7 @@ export async function GET(request) {
   }
 
   const keys = Object.keys(JOBS);
-  const settled = await Promise.allSettled(keys.map(k => runJob(k, JOBS[k], dryRun)));
+  const settled = await Promise.allSettled(keys.map(k => runJob(k, { dryRun })));
 
   const results = {};
   const failures = [];

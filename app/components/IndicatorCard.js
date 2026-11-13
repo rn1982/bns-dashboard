@@ -1,75 +1,89 @@
-export default function IndicatorCard({ title, data }) {
-  if (!data || data.error) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-red-600">Error loading data</p>
-      </div>
-    );
-  }
+// One indicator: value, score, and where the number comes from.
+// `data` is what the reader route returned: { value, score, meta, ... } or { error, meta }.
 
-  let displayValue = "No data";
-  let displayScore = 0;
-  let source = data.source || "Unknown";
+const BADGE = {
+  live: { text: 'Live', cls: 'bg-green-100 text-green-800 border-green-300' },
+  manual: { text: 'Manual', cls: 'bg-blue-100 text-blue-800 border-blue-300' },
+  stale: { text: 'Stale', cls: 'bg-amber-100 text-amber-900 border-amber-400' },
+  missing: { text: 'Missing', cls: 'bg-red-100 text-red-800 border-red-300' },
+  error: { text: 'Error', cls: 'bg-red-100 text-red-800 border-red-300' },
+};
 
-  // Handle different indicator types
-  if (title.includes("Real Estate")) {
-    displayValue = `${data.value}% YoY`;
-    displayScore = data.score || 0;
-  } else if (title.includes("Inflation")) {
-    displayValue = `${data.value}%`;
-    displayScore = data.score || 0;
-  } else if (title.includes("EUR/CHF")) {
-    displayValue = data.value?.toFixed(4) || "N/A";
-    displayScore = data.score || 0;
-  } else if (title.includes("ECB")) {
-    displayValue = `${data.rate}%`;
-    displayScore = data.score || 0;
-    source = data.source || "FRED (Live)";
-  } else if (title.includes("Fed")) {
-    displayValue = `${data.rate}%`;
-    displayScore = data.score || 0;
-    source = data.source || "FRED (Live)";
-  } else if (title.includes("GDP")) {
-    displayValue = `${data.value}%`;
-    displayScore = data.score || 0;
-  } else if (title.includes("Unemployment")) {
-    displayValue = `${data.value}%`;
-    displayScore = data.score || 0;
-  }
+export function FreshnessBadge({ meta, status }) {
+  const s = status || meta?.status || 'error';
+  const b = BADGE[s] || BADGE.error;
+  // "Stale · manual" tells the user they typed it in themselves and should refresh it.
+  const suffix = s === 'stale' && meta?.origin && meta.origin !== 'unknown' ? ` · ${meta.origin}` : '';
+  return (
+    <span
+      className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full border ${b.cls}`}
+      title={meta?.reason || ''}
+    >
+      {b.text}{suffix}
+    </span>
+  );
+}
 
-  // Color coding based on score
-  let scoreColor = "text-gray-600";
-  let borderColor = "border-gray-400";
-  if (displayScore > 0) {
-    scoreColor = "text-red-600";
-    borderColor = "border-red-400";
-  } else if (displayScore < 0) {
-    scoreColor = "text-green-600";
-    borderColor = "border-green-400";
-  }
+export function formatDate(d) {
+  if (!d) return '—';
+  const date = new Date(d.length === 10 ? `${d}T00:00:00Z` : d);
+  if (Number.isNaN(date.getTime())) return d;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+export function formatDateTime(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function scoreStyle(score) {
+  if (score > 0) return { text: 'text-red-700', border: 'border-red-400', label: 'hawkish' };
+  if (score < 0) return { text: 'text-green-700', border: 'border-green-400', label: 'dovish' };
+  return { text: 'text-gray-600', border: 'border-gray-400', label: 'neutral' };
+}
+
+export default function IndicatorCard({ title, weight, data, format = v => String(v), subtitle }) {
+  const meta = data?.meta;
+  const failed = !data || data.error;
+  const status = failed ? (meta?.status === 'missing' ? 'missing' : 'error') : meta?.status;
+  const style = failed ? { text: 'text-gray-500', border: 'border-red-400' } : scoreStyle(data.score);
+  const isStale = status === 'stale';
 
   return (
-    <div className={`bg-white rounded-lg shadow p-6 border-l-4 ${borderColor} hover:shadow-lg transition-shadow`}>
-      <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
-      
-      <div className="mb-3">
-        <p className="text-2xl font-bold text-blue-600">{displayValue}</p>
+    <div className={`bg-white rounded-lg shadow p-5 border-l-4 ${isStale ? 'border-amber-400' : style.border} flex flex-col`}>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <h3 className="text-base font-semibold text-gray-900">
+          {title}
+          {weight !== undefined && <span className="ml-1 text-xs font-normal text-gray-500">({Math.round(weight * 100)}%)</span>}
+        </h3>
+        <FreshnessBadge meta={meta} status={status} />
       </div>
-      
-      <div className="flex justify-between items-center text-sm">
-        <span className={`font-semibold ${scoreColor}`}>
-          Score: {displayScore}
-        </span>
-        <span className="text-gray-500 text-xs">
-          {source}
-        </span>
-      </div>
-      
-      {data.updatedAt && (
-        <p className="text-xs text-gray-400 mt-2">
-          Updated: {new Date(data.updatedAt).toLocaleString()}
-        </p>
+
+      {failed ? (
+        <div className="flex-1">
+          <p className="text-gray-700 text-sm">{data?.error || 'Could not load this indicator'}</p>
+          <p className="text-xs text-gray-500 mt-2">
+            Left out of the forecast. You can enter it in <strong>Manual Data Update</strong>.
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1">
+          <p className="text-2xl font-bold text-blue-700">{format(data.value)}</p>
+          {subtitle && <p className="text-sm text-gray-700 mt-1">{subtitle}</p>}
+          <p className={`text-sm font-semibold mt-2 ${style.text}`}>
+            Score: {data.score > 0 ? `+${data.score}` : data.score} <span className="font-normal">({style.label})</span>
+          </p>
+        </div>
+      )}
+
+      {meta && (
+        <dl className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
+          {meta.observedAt && <div><dt className="inline">Data for: </dt><dd className="inline text-gray-700">{formatDate(meta.observedAt)}</dd></div>}
+          {meta.source && <div><dt className="inline">Source: </dt><dd className="inline text-gray-700">{meta.source}</dd></div>}
+          {meta.updatedAt && <div><dt className="inline">Saved: </dt><dd className="inline">{formatDateTime(meta.updatedAt)}</dd></div>}
+          {meta.reason && <div className={isStale ? 'text-amber-800 font-medium' : ''}>{meta.reason}</div>}
+          {!meta.hasLiveSource && <div>No live source: manual entry only.</div>}
+        </dl>
       )}
     </div>
   );
