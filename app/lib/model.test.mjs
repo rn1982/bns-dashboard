@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { freshness, toDateString, ageInDays } from './freshness.js';
-import { computeForecast, verdictFromScore, WEIGHTS } from './model.js';
+import { computeForecast, verdictFromScore, WEIGHTS, normalizeWeights, isBacktestedWeights } from './model.js';
 
 const NOW = new Date('2026-11-13T09:00:00Z');
 
@@ -122,4 +122,41 @@ test('readIndicator: empty column → missing; manual-only indicator says so', (
   assert.equal(value, null);
   assert.equal(meta.status, 'missing');
   assert.equal(meta.hasLiveSource, false);
+});
+
+// ---------- custom weights (sliders) ----------
+
+const SCORES = { inflation: 2, realEstate: 1, exchangeRate: -2, ecb: 1, gdp: 0, unemployment: -1, fed: -1 };
+
+test('default weights = backtested weights, whatever the scale', () => {
+  const pts = Object.fromEntries(Object.entries(WEIGHTS).map(([k, v]) => [k, v * 100]));
+  assert.equal(computeForecast(SCORES, pts).score, computeForecast(SCORES).score);
+  assert.ok(isBacktestedWeights(pts));
+  assert.ok(!isBacktestedWeights({ ...pts, fed: 20 }));
+});
+
+test('only inflation weighted → score = inflation score; zero-weight gaps are not "missing"', () => {
+  const only = { inflation: 1, realEstate: 0, exchangeRate: 0, ecb: 0, gdp: 0, unemployment: 0, fed: 0 };
+  const f = computeForecast({ ...SCORES, realEstate: null }, only);
+  assert.equal(f.score, 2);
+  assert.equal(f.partial, false);
+  assert.deepEqual(f.missing, []);
+});
+
+test('all weights 0 → no verdict', () => {
+  const zero = Object.fromEntries(Object.keys(WEIGHTS).map(k => [k, 0]));
+  assert.equal(normalizeWeights(zero), null);
+  assert.equal(computeForecast(SCORES, zero).verdict, null);
+});
+
+test('contributions add up to the score, also with a missing indicator', () => {
+  for (const scores of [SCORES, { ...SCORES, realEstate: null }]) {
+    const f = computeForecast(scores, { ...WEIGHTS, fed: 0.4 });
+    const sum = Object.values(f.contributions).reduce((a, c) => a + (c.contribution || 0), 0);
+    assert.ok(Math.abs(sum - f.score) < 0.001, `${sum} vs ${f.score}`);
+  }
+});
+
+test('negative or junk slider values count as 0', () => {
+  assert.deepEqual(normalizeWeights({ inflation: -5, gdp: 'x', fed: 1 }).fed, 1);
 });

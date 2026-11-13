@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import IndicatorCard, { FreshnessBadge, RevertButton, formatDate, formatDateTime } from './components/IndicatorCard';
 import ManualDataInput from './components/ManualDataInput';
 import { RANGES, rangeStart } from './components/HistoryChart';
-import { WEIGHTS, LABELS, computeForecast } from './lib/model';
+import { WEIGHTS, LABELS, computeForecast, isBacktestedWeights } from './lib/model';
+import WeightPanel from './components/WeightPanel';
 import { STANCE_LABELS } from './lib/indicators';
 
 const ROUTES = {
@@ -42,6 +43,11 @@ const CARDS = [
   { key: 'unemployment', history: 'unemployment', get: d => d.economicHealth?.unemployment, format: pct },
   { key: 'fed', history: 'fed_rate', stepped: true, get: d => d.internationalRates?.fed, format: pct, subtitle: x => STANCE_LABELS[x?.stance] || x?.stance },
 ];
+
+// Slider positions: the backtested weights in points (0.30 -> 30).
+const DEFAULT_POINTS = Object.fromEntries(Object.entries(WEIGHTS).map(([k, v]) => [k, Math.round(v * 100)]));
+// The user's slider positions are kept in THIS browser only (other viewers see the backtested model).
+const WEIGHTS_STORAGE_KEY = 'snb-dashboard-weights-v1';
 
 const VERDICT_STYLE = {
   'HIKE-strong': 'bg-red-200 text-red-900 border-red-400',
@@ -83,6 +89,25 @@ export default function HomePage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [range, setRange] = useState('5y');
   const historyFrom = rangeStart(range);
+  const [weights, setWeights] = useState(DEFAULT_POINTS);
+
+  // Restore saved slider positions once; storage can be blocked (private mode), so never fail on it.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(WEIGHTS_STORAGE_KEY) || 'null');
+      if (saved && typeof saved === 'object') {
+        setWeights(Object.fromEntries(Object.keys(DEFAULT_POINTS).map(k => [k, Number.isFinite(saved[k]) ? saved[k] : DEFAULT_POINTS[k]])));
+      }
+    } catch { /* ignore */ }
+  }, []);
+  const saveWeights = useCallback(next => {
+    setWeights(next);
+    try {
+      if (isBacktestedWeights(next)) localStorage.removeItem(WEIGHTS_STORAGE_KEY);
+      else localStorage.setItem(WEIGHTS_STORAGE_KEY, JSON.stringify(next));
+    } catch { /* ignore */ }
+  }, []);
+  const isCustom = !isBacktestedWeights(weights);
 
   const loadAll = useCallback(async () => {
     setIsLoading(true);
@@ -112,7 +137,10 @@ export default function HomePage() {
 
   const cards = CARDS.map(c => ({ ...c, data: c.get(allData) }));
   const scores = Object.fromEntries(cards.map(c => [c.key, c.data && !c.data.error ? c.data.score : null]));
-  const forecast = isLoading ? null : computeForecast(scores);
+  const forecast = isLoading ? null : computeForecast(scores, weights);
+  // With custom weights, keep the backtested verdict in view so the two are never confused.
+  const baseline = !isLoading && isCustom ? computeForecast(scores) : null;
+  const shareOf = k => forecast?.contributions?.[k]?.weight ?? WEIGHTS[k];
   const stale = cards.filter(c => c.data && !c.data.error && c.data.meta?.status === 'stale').map(c => c.key);
   const nextMeeting = allData.internationalRates?.nextMeeting;
   const market = allData.marketExpectations;
@@ -180,6 +208,7 @@ export default function HomePage() {
               <p className="text-xl font-bold mt-1 text-red-900">Not enough data for a forecast</p>
               <p className="text-sm text-red-800 mt-1">
                 Only {Math.round(forecast.coverage * 100)}% of the model weight is available. Missing: {forecast.missing.map(k => LABELS[k]).join(', ')}.
+                {isCustom && ' (With your custom weights: try resetting them below.)'}
               </p>
             </div>
           ) : (
@@ -188,9 +217,15 @@ export default function HomePage() {
                 <div>
                   <h2 className="text-sm font-bold uppercase tracking-wider">
                     Model forecast {forecast.partial && <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-amber-200 text-amber-900 normal-case tracking-normal">Partial</span>}
+                    {isCustom && <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-blue-600 text-white normal-case tracking-normal">Custom weights</span>}
                   </h2>
                   <p className="text-2xl font-bold mt-1">{forecast.verdict.text}</p>
                   <p className="text-sm font-semibold mt-1">Global weighted score: {forecast.score.toFixed(2)}</p>
+                  {baseline && (
+                    <p className="text-sm mt-1">
+                      Backtested weights: <strong>{baseline.verdict ? `${baseline.verdict.text} (${baseline.score.toFixed(2)})` : 'not enough data'}</strong>
+                    </p>
+                  )}
                 </div>
                 <div className="sm:text-right">
                   <h3 className="text-sm font-bold">NEXT SNB MEETING</h3>
@@ -206,7 +241,7 @@ export default function HomePage() {
                 <div className="mt-3 pt-3 border-t border-black/10 text-sm space-y-1">
                   {forecast.partial && (
                     <p>
-                      <strong>Partial:</strong> missing {forecast.missing.map(k => `${LABELS[k]} (${Math.round(WEIGHTS[k] * 100)}%)`).join(', ')}.
+                      <strong>Partial:</strong> missing {forecast.missing.map(k => `${LABELS[k]} (${Math.round(shareOf(k) * 100)}%)`).join(', ')}.
                       The other weights were scaled up to cover {Math.round(forecast.coverage * 100)}% of the model. Less reliable than the full model.
                     </p>
                   )}
@@ -218,6 +253,16 @@ export default function HomePage() {
             </div>
           )}
         </section>
+
+        {!isLoading && (
+          <WeightPanel
+            weights={weights}
+            onChange={(k, v) => saveWeights({ ...weights, [k]: v })}
+            onReset={() => saveWeights(DEFAULT_POINTS)}
+            forecast={forecast}
+            isCustom={isCustom}
+          />
+        )}
 
         {/* Market view */}
         {market && (
@@ -313,7 +358,7 @@ export default function HomePage() {
             <IndicatorCard
               key={c.key}
               title={`${i + 1}. ${LABELS[c.key]}`}
-              weight={WEIGHTS[c.key]}
+              weight={shareOf(c.key)}
               data={c.data}
               format={c.format}
               subtitle={c.subtitle?.(c.data)}
